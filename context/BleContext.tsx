@@ -147,6 +147,23 @@ export function BleProvider({ children }: { children: ReactNode }) {
     }
   }, [telemetry]);
 
+  // Prevent accidental page reload/refresh when Bluetooth is connected
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      const warningMessage = "Bluetooth connection will be lost if you reload or leave this page. Are you sure you want to refresh?";
+      event.returnValue = warningMessage;
+      return warningMessage;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [status]);
+
   const openModal = useCallback(() => setIsModalOpen(true), []);
   const closeModal = useCallback(() => setIsModalOpen(false), []);
 

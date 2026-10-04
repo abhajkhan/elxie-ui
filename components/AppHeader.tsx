@@ -89,19 +89,18 @@ export default function AppHeader() {
         <div className="flex shrink-0 items-center gap-2.5">
           {/* Dual battery indicators */}
           <div className="flex flex-col gap-1">
-            <BatteryBar label="RC"  pct={remoteBattery} accent="cyan"  />
-            <BatteryBar label="Bot" pct={robotBattery}  accent="green" />
+            <BatteryBar label="RC" pct={remoteBattery} accent="cyan" />
+            {/* <BatteryBar label="Bot" pct={robotBattery}  accent="green" /> */}
           </div>
 
           {/* BLE connect button */}
           <button
             type="button"
             onClick={() => { if (!isConnected) openModal(); }}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-              isConnected
-                ? "border-success/30 bg-success/10 text-success cursor-default"
-                : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 cursor-pointer"
-            }`}
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${isConnected
+              ? "border-success/30 bg-success/10 text-success cursor-default"
+              : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 cursor-pointer"
+              }`}
           >
             <Bluetooth size={13} />
             <span>{isConnected ? "Connected" : status === "connecting" ? "Connecting" : "Offline"}</span>

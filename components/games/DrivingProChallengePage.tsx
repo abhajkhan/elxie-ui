@@ -367,10 +367,10 @@ export default function DrivingProChallengePage() {
   const currentTaskMeta = getTaskMeta(currentTaskId);
   const isObstacleDetected = Boolean(
     telemetry?.obstacle?.frontLeft ||
-      telemetry?.obstacle?.frontRight ||
-      telemetry?.obstacle?.rearLeft ||
-      telemetry?.obstacle?.rearRight ||
-      (telemetry?.distance?.front !== null && (telemetry?.distance?.front ?? 100) < 15)
+    telemetry?.obstacle?.frontRight ||
+    telemetry?.obstacle?.rearLeft ||
+    telemetry?.obstacle?.rearRight ||
+    (telemetry?.distance?.front !== null && (telemetry?.distance?.front ?? 100) < 15)
   );
 
   return (
@@ -453,11 +453,10 @@ export default function DrivingProChallengePage() {
                 type="button"
                 disabled={!unlocked}
                 onClick={handleStartLevel}
-                className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4 text-base font-bold transition-all ${
-                  unlocked
+                className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4 text-base font-bold transition-all ${unlocked
                     ? "bg-primary text-white hover:bg-primary/90 active:scale-[0.98] shadow-lg shadow-primary/20"
                     : "bg-white/10 text-white/30 cursor-not-allowed"
-                }`}
+                  }`}
               >
                 <Play size={20} fill="currentColor" /> Start Level {levelId} Challenge
               </button>
@@ -485,7 +484,7 @@ export default function DrivingProChallengePage() {
             <div className="my-2 p-4 rounded-2xl border border-white/10 bg-black/30 text-left space-y-2">
               <h3 className="text-base font-black text-white">{currentTaskMeta.title}</h3>
               <p className="text-xs text-white/70 leading-relaxed">{currentTaskMeta.description}</p>
-              
+
               <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
                 <span className="text-white/50 font-semibold flex items-center gap-1">
                   <Clock size={14} /> Duration:
@@ -617,7 +616,7 @@ export default function DrivingProChallengePage() {
             </div>
 
             <h2 className="text-xl font-black text-white">{gameOverReason || "Game Over"}</h2>
-            
+
             <p className="text-xs text-white/70 leading-relaxed max-w-xs mx-auto">
               Your robot encountered a collision or failed to complete the task requirements in time.
             </p>
@@ -640,8 +639,7 @@ export default function DrivingProChallengePage() {
         {/* ControlPanel Component for Real-Time Telemetry & Vehicle Indicators */}
         <ControlPanel
           mode="challenge"
-          game="driving-pro"
-          isGameActive={gameState === "TASK_RUNNING"}
+          showJoystick={false}
         />
 
         {/* Exit Button */}
