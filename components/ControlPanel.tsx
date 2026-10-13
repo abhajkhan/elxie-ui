@@ -273,7 +273,7 @@ export default function ControlPanel({
   return (
     <section
       aria-label={`${modeLabel[mode]} robot controls`}
-      className="flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-[0_24px_80px_rgba(0,0,0,0.22)] sm:p-5"
+      className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-[0_24px_80px_rgba(0,0,0,0.22)] sm:p-5"
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 shrink-0">
@@ -434,14 +434,14 @@ export default function ControlPanel({
         )}
       </div>
 
-      {/* Alert Toasts */}
+      {/* Alert Toasts: anchored to this panel, just below its header */}
       {alertToast && (
         <div
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
+          className="pointer-events-none absolute inset-x-4 top-14 z-20 flex justify-center"
           role="alert"
         >
           <p
-            className={`flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl backdrop-blur ${alertToast.tone === "warning"
+            className={`flex max-w-full items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl backdrop-blur ${alertToast.tone === "warning"
               ? "border-warning/35 bg-warning/90 text-black"
               : "border-danger/35 bg-danger/90 text-white"
               }`}
