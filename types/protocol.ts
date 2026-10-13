@@ -216,6 +216,12 @@ export type GameStartedPayload = {
     go: string[];
     stop: string[];
   };
+  targets?: {
+    safeDriveTargetSec: number;
+    minTotalTurns: number;
+    minLeftTurns: number;
+    minRightTurns: number;
+  };
 };
 export type GameStartedMessage = ResponseEnvelope<"game_started", GameStartedPayload>;
 

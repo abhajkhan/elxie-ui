@@ -206,6 +206,13 @@ export const DIRECTION_INVERT_LEVEL_CONFIGS: Record<
   },
 };
 
+export type LevelThresholds = {
+  safeDriveTargetSec: number;
+  minTotalTurns: number;
+  minLeftTurns: number;
+  minRightTurns: number;
+};
+
 export function getLevelConfig(levelId: number): DirectionInvertLevelConfig {
   return (
     DIRECTION_INVERT_LEVEL_CONFIGS[levelId] ?? DIRECTION_INVERT_LEVEL_CONFIGS[1]
@@ -213,9 +220,10 @@ export function getLevelConfig(levelId: number): DirectionInvertLevelConfig {
 }
 
 export function calculateStars(score: number): 0 | 1 | 2 | 3 {
-  if (score >= 3) return 3;
-  if (score === 2) return 2;
-  if (score === 1) return 1;
+  const normalized = score > 1 ? (score <= 3 ? score / 3 : score / 100) : score;
+  if (normalized >= 0.8) return 3;
+  if (normalized >= 0.6) return 2;
+  if (normalized >= 0.3) return 1;
   return 0;
 }
 

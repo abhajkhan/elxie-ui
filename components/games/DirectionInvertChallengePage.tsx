@@ -1,15 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ShieldAlert,
   Play,
   Bluetooth,
   Shuffle,
-  CheckCircle2,
-  XCircle,
-  Clock,
 } from "lucide-react";
 import SubPageHeader from "@/components/SubPageHeader";
 import ResultModal from "@/components/ResultModal";
@@ -18,17 +15,20 @@ import { useBleContext } from "@/context/BleContext";
 import {
   calculateStars,
   getLevelConfig,
+  type LevelThresholds,
   isLevelUnlocked,
 } from "@/lib/directionInvert";
 import {
   fetchAndSyncProgress,
+  readLocalProgress,
+  writeLocalProgress,
   submitAndPersistLevelResult,
 } from "@/lib/progressStore";
 import type {
   DirectionInvertGameState,
-  LevelProgress,
   ObjectiveStatus,
 } from "@/types/directionInvert";
+import type { LevelProgress } from "@/types/colourQuest";
 import type { GameResultPayload } from "@/types/protocol";
 import { useGameSession } from "@/games/useGameSession";
 
@@ -50,6 +50,9 @@ export default function DirectionInvertChallengePage() {
   const [gameStateMode, setGameStateMode] =
     useState<DirectionInvertGameState>("INSTRUCTIONS");
 
+  // Live objective thresholds received directly from firmware game_started response
+  const [liveThresholds, setLiveThresholds] = useState<LevelThresholds | null>(null);
+
   const [objectiveStatuses, setObjectiveStatuses] = useState<
     Record<1 | 2 | 3, ObjectiveStatus>
   >({
@@ -58,6 +61,57 @@ export default function DirectionInvertChallengePage() {
     3: "pending",
   });
 
+function isValidTargets(targets: unknown): targets is LevelThresholds {
+  if (!targets || typeof targets !== "object") return false;
+  const t = targets as Record<string, unknown>;
+  return (
+    typeof t.safeDriveTargetSec === "number" &&
+    Number.isFinite(t.safeDriveTargetSec) &&
+    t.safeDriveTargetSec > 0 &&
+    typeof t.minTotalTurns === "number" &&
+    Number.isInteger(t.minTotalTurns) &&
+    t.minTotalTurns > 0 &&
+    typeof t.minLeftTurns === "number" &&
+    Number.isInteger(t.minLeftTurns) &&
+    t.minLeftTurns >= 0 &&
+    typeof t.minRightTurns === "number" &&
+    Number.isInteger(t.minRightTurns) &&
+    t.minRightTurns >= 0
+  );
+}
+
+function sanitizeProgress(
+  map: Record<number, LevelProgress>,
+  syncToStorage = false,
+): Record<number, LevelProgress> {
+  let migrated = false;
+  const sanitized: Record<number, LevelProgress> = {};
+  for (const [key, val] of Object.entries(map)) {
+    const lvl = Number(key);
+    const normalizedBest =
+      val.bestScore > 1.0
+        ? val.bestScore <= 3
+          ? Number((val.bestScore / 3).toFixed(2))
+          : Number((val.bestScore / 100).toFixed(2))
+        : val.bestScore;
+
+    if (normalizedBest !== val.bestScore) {
+      migrated = true;
+    }
+
+    sanitized[lvl] = {
+      ...val,
+      bestScore: normalizedBest,
+    };
+  }
+
+  if (migrated && syncToStorage && typeof window !== "undefined") {
+    writeLocalProgress("inverted-drive", sanitized);
+  }
+
+  return sanitized;
+}
+
   const [finalResult, setFinalResult] = useState<{
     score: number;
     stars: 0 | 1 | 2 | 3;
@@ -65,38 +119,71 @@ export default function DirectionInvertChallengePage() {
 
   const [levelProgressMap, setLevelProgressMap] = useState<
     Record<number, LevelProgress>
-  >({});
-  const [isLocked, setIsLocked] = useState(false);
+  >(() => {
+    if (typeof window === "undefined") return {};
+    return sanitizeProgress(readLocalProgress("inverted-drive"), true);
+  });
 
-  // Load progress and check lock status
+  const isUnlocked = isLevelUnlocked(currentLevelId, levelProgressMap, 6);
+  const resultHandledRef = useRef(false);
+
+  // Clear live targets when switching level
   useEffect(() => {
+    setLiveThresholds(null);
+  }, [currentLevelId]);
+
+  // Sync progress with backend in background
+  useEffect(() => {
+    let mounted = true;
     async function loadProgress() {
-      const prog = await fetchAndSyncProgress("inverted-drive");
-      if (prog) {
-        setLevelProgressMap(prog);
-        if (!isLevelUnlocked(currentLevelId, prog, 6)) {
-          setIsLocked(true);
+      try {
+        const prog = await fetchAndSyncProgress("inverted-drive");
+        if (mounted && prog && prog.levels) {
+          setLevelProgressMap(sanitizeProgress(prog.levels, true));
         }
+      } catch (err) {
+        console.warn("[DIRECTION INVERT] Failed to sync progress:", err);
       }
     }
     void loadProgress();
+    return () => {
+      mounted = false;
+    };
   }, [currentLevelId]);
 
   // Handle game result from firmware
   const handleResult = useCallback(
     async (res: GameResultPayload) => {
-      const computedStars = res.stars ?? calculateStars(res.score);
+      if (resultHandledRef.current) return;
+      resultHandledRef.current = true;
+
+      // Inverted Drive has 3 objectives. Firmware sends passedCount (0-3).
+      // Normalize score to 0.0 - 1.0 range for storage and display.
+      const rawScore = res.score;
+      const normalizedScore =
+        rawScore > 1
+          ? (rawScore <= 3 ? rawScore / 3 : rawScore / 100)
+          : rawScore;
+      const computedStars = res.stars ?? calculateStars(normalizedScore);
+
       setFinalResult({
-        score: res.score,
+        score: normalizedScore,
         stars: computedStars,
       });
 
-      await submitAndPersistLevelResult(
-        "inverted-drive",
-        currentLevelId,
-        res.score,
-        computedStars,
-      );
+      try {
+        const persistRes = await submitAndPersistLevelResult(
+          "inverted-drive",
+          currentLevelId,
+          normalizedScore,
+          computedStars,
+        );
+        if (persistRes?.levels) {
+          setLevelProgressMap(sanitizeProgress(persistRes.levels));
+        }
+      } catch (err) {
+        console.warn("[DIRECTION INVERT] Failed to persist level result:", err);
+      }
 
       setGameStateMode("RESULT");
     },
@@ -141,6 +228,25 @@ export default function DirectionInvertChallengePage() {
     }
   }, [serverGameState, currentLevelId]);
 
+  // Synchronize live objective thresholds from authoritative firmware game_started response
+  useEffect(() => {
+    if (
+      lastMessage &&
+      lastMessage.type === "response" &&
+      lastMessage.response === "game_started"
+    ) {
+      const payload = lastMessage.payload;
+      if (
+        payload &&
+        payload.gameId === "inverted_drive" &&
+        (payload.level === undefined || payload.level === currentLevelId) &&
+        isValidTargets(payload.targets)
+      ) {
+        setLiveThresholds(payload.targets);
+      }
+    }
+  }, [lastMessage, currentLevelId]);
+
   useEffect(() => {
     if (
       lastMessage &&
@@ -169,18 +275,24 @@ export default function DirectionInvertChallengePage() {
       openBleModal();
       return;
     }
+    resultHandledRef.current = false;
+    setLiveThresholds(null);
     setObjectiveStatuses({ 1: "pending", 2: "pending", 3: "pending" });
     setFinalResult(null);
     await gameSession.start();
   };
 
   const handleAbortMission = async () => {
+    resultHandledRef.current = false;
+    setLiveThresholds(null);
     await stop();
     await gameSession.abort();
     setGameStateMode("INSTRUCTIONS");
   };
 
   const handleNextLevel = () => {
+    resultHandledRef.current = false;
+    setLiveThresholds(null);
     if (currentLevelId < 6) {
       router.push(`/playground/inverted-drive/challenges/${currentLevelId + 1}`);
       setGameStateMode("INSTRUCTIONS");
@@ -192,13 +304,15 @@ export default function DirectionInvertChallengePage() {
   };
 
   const handleRetryLevel = async () => {
+    resultHandledRef.current = false;
+    setLiveThresholds(null);
     setGameStateMode("INSTRUCTIONS");
     setObjectiveStatuses({ 1: "pending", 2: "pending", 3: "pending" });
     setFinalResult(null);
     await handleStartMission();
   };
 
-  if (isLocked) {
+  if (!isUnlocked) {
     return (
       <main className="min-h-screen bg-background pb-12 pt-20">
         <SubPageHeader
@@ -365,49 +479,78 @@ export default function DirectionInvertChallengePage() {
               <span className="text-xs font-bold uppercase tracking-wider text-white/50">
                 Live Objective Progress
               </span>
-              <div className="mt-2.5 space-y-2">
-                {levelConfig.objectives.map((obj) => {
-                  const status = objectiveStatuses[obj.id];
-                  return (
-                    <div
-                      key={obj.id}
-                      className={`flex items-center justify-between rounded-xl border p-3 ${
-                        status === "passed"
-                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                          : status === "failed"
-                          ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
-                          : "border-white/10 bg-white/5 text-white/80"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono text-xs font-bold">
-                          Task {obj.id}:
-                        </span>
-                        <span className="text-xs font-semibold">{obj.title}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold">
-                        {status === "passed" && (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                            <span>PASSED</span>
-                          </>
-                        )}
-                        {status === "failed" && (
-                          <>
-                            <XCircle className="h-4 w-4 text-rose-400" />
-                            <span>FAILED</span>
-                          </>
-                        )}
-                        {status === "pending" && (
-                          <>
-                            <Clock className="h-4 w-4 text-amber-400 animate-spin" />
-                            <span className="text-amber-300">IN PROGRESS</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                {/* 1. Safe Drive (Task 1) */}
+                <div
+                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                    objectiveStatuses[1] === "passed"
+                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                      : objectiveStatuses[1] === "failed"
+                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                      : "border-white/10 bg-black/40 text-white/80"
+                  }`}
+                >
+                  <span className="text-sm font-bold tracking-tight">Safe Drive</span>
+                  <span className="mt-2 text-base font-bold">
+                    {liveThresholds
+                      ? `-- s / ${liveThresholds.safeDriveTargetSec} s`
+                      : "-- s / -- s"}
+                  </span>
+                </div>
+
+                {/* 2. Total Turns (Task 2) */}
+                <div
+                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                    objectiveStatuses[2] === "passed"
+                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                      : objectiveStatuses[2] === "failed"
+                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                      : "border-white/10 bg-black/40 text-white/80"
+                  }`}
+                >
+                  <span className="text-sm font-bold tracking-tight">Total Turns</span>
+                  <span className="mt-2 text-base font-bold">
+                    {liveThresholds
+                      ? `-- / ${liveThresholds.minTotalTurns}`
+                      : "-- / --"}
+                  </span>
+                </div>
+
+                {/* 3. Right Turns (Task 3 sub-target) */}
+                <div
+                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                    objectiveStatuses[3] === "passed"
+                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                      : objectiveStatuses[3] === "failed"
+                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                      : "border-white/10 bg-black/40 text-white/80"
+                  }`}
+                >
+                  <span className="text-sm font-bold tracking-tight">Right Turns</span>
+                  <span className="mt-2 text-base font-bold">
+                    {liveThresholds
+                      ? `-- / ${liveThresholds.minRightTurns}`
+                      : "-- / --"}
+                  </span>
+                </div>
+
+                {/* 4. Left Turns (Task 3 sub-target) */}
+                <div
+                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                    objectiveStatuses[3] === "passed"
+                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                      : objectiveStatuses[3] === "failed"
+                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                      : "border-white/10 bg-black/40 text-white/80"
+                  }`}
+                >
+                  <span className="text-sm font-bold tracking-tight">Left Turns</span>
+                  <span className="mt-2 text-base font-bold">
+                    {liveThresholds
+                      ? `-- / ${liveThresholds.minLeftTurns}`
+                      : "-- / --"}
+                  </span>
+                </div>
               </div>
             </div>
 
