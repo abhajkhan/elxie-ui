@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Blocks,
   ChevronRight,
   Gamepad2,
+  Lock,
   Gauge,
   Trophy,
   Palette,
@@ -15,13 +17,16 @@ import {
 type ModeCardProps = {
   title: string;
   description: string;
-  icon: "game" | "memory" | "reflex" | "drive" | "challenge" | "training";
+  icon: "game" | "memory" | "reflex" | "drive" | "challenge" | "training" | "blocks";
   accent: "primary" | "accent" | "warning";
   href: string;
   progress?: number;
   completedLevels?: number;
   totalLevels?: number;
   isComingSoon?: boolean;
+  /** Locked cards are not links; `lockedHint` explains how to unlock. */
+  locked?: boolean;
+  lockedHint?: string;
   index?: number;
 };
 
@@ -32,6 +37,7 @@ const iconMap = {
   drive: Gamepad2,
   challenge: Trophy,
   training: Gauge,
+  blocks: Blocks,
 };
 
 const accentMap = {
@@ -62,6 +68,8 @@ export default function ModeCard({
   completedLevels,
   totalLevels,
   isComingSoon = false,
+  locked = false,
+  lockedHint,
   index = 0,
 }: ModeCardProps) {
   const Icon = iconMap[icon];
@@ -82,21 +90,20 @@ export default function ModeCard({
     return () => clearTimeout(timer);
   }, [targetProgress, index]);
 
-  return (
-    <Link
-      href={href}
-      className={`group flex w-full items-center gap-4 rounded-2xl border border-border bg-surface p-4 text-left transition-all duration-300 active:scale-[0.98] hover:bg-surface-light hover:shadow-xl ${
-        colors.glow
-      } ${
-        isMounted
-          ? "opacity-100 translate-y-0"
-          : "opacity-0 translate-y-3"
-      }`}
-      style={{
-        transitionProperty: "opacity, transform, border-color, background-color, box-shadow",
-        transitionDelay: `${index * 40}ms`,
-      }}
-    >
+  const cardClassName = `group flex w-full items-center gap-4 rounded-2xl border border-border bg-surface p-4 text-left transition-all duration-300 ${
+    locked ? "cursor-not-allowed" : `active:scale-[0.98] hover:bg-surface-light hover:shadow-xl ${colors.glow}`
+  } ${
+    isMounted
+      ? locked ? "opacity-60 translate-y-0" : "opacity-100 translate-y-0"
+      : "opacity-0 translate-y-3"
+  }`;
+  const cardStyle = {
+    transitionProperty: "opacity, transform, border-color, background-color, box-shadow",
+    transitionDelay: `${index * 40}ms`,
+  };
+
+  const content = (
+    <>
       <div
         className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105 ${colors.icon}`}
       >
@@ -117,6 +124,12 @@ export default function ModeCard({
           {description}
         </p>
 
+        {locked && lockedHint && (
+          <p className="mt-1.5 text-xs font-semibold leading-5 text-accent">
+            {lockedHint}
+          </p>
+        )}
+
         {/* Progress Bar Container with constant height (Zero layout shifts) */}
         {hasProgress && (
           <div className="mt-2.5 min-h-[28px]">
@@ -136,10 +149,28 @@ export default function ModeCard({
         )}
       </div>
 
-      <ChevronRight
-        size={20}
-        className="shrink-0 text-white/25 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-white/60"
-      />
+      {locked ? (
+        <Lock size={18} className="shrink-0 text-white/40" aria-label="Locked" />
+      ) : (
+        <ChevronRight
+          size={20}
+          className="shrink-0 text-white/25 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-white/60"
+        />
+      )}
+    </>
+  );
+
+  if (locked) {
+    return (
+      <div className={cardClassName} style={cardStyle} aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link href={href} className={cardClassName} style={cardStyle}>
+      {content}
     </Link>
   );
 }

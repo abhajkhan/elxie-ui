@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Gamepad2, Home, UserRound } from "lucide-react";
+import { Gamepad2, Home, Settings } from "lucide-react";
 
 const tabs = [
   { label: "Home", href: "/", icon: Home },
   { label: "Playground", href: "/playground", icon: Gamepad2 },
-  { label: "Profile", href: "/profile", icon: UserRound },
+  { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
 export default function BottomNav() {

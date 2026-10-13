@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Elxie Blocks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css?v=2">
+</head>
+<body>
+<header class="menubar">
+  <button id="btnBack" class="back" title="Back to games" aria-label="Back to games" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <div class="brand"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="4" y="8" width="32" height="24" rx="9" fill="#fff"/><rect x="11" y="15" width="6" height="9" rx="3" fill="#FF7A1A"/><rect x="23" y="15" width="6" height="9" rx="3" fill="#FF7A1A"/><rect x="18" y="2" width="4" height="7" rx="2" fill="#fff"/></svg><span>Elxie Blocks</span></div>
+  <button id="btnMenu" class="menuToggle" title="Project" aria-label="Project menu" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="19" cy="12" r="2.2" fill="currentColor"/></svg></button>
+  <nav class="menu" id="menu">
+    <button id="mNew" title="Start a new project">New</button>
+    <button id="mOpen" title="Open a project from your computer">Open</button>
+    <button id="mSave" title="Save this project to your computer">Save</button>
+    <input type="file" id="fileIn" accept=".json,.elxie" hidden>
+  </nav>
+  <input id="projName" class="projname" value="My Elxie program" maxlength="40" aria-label="Project name">
+  <div class="spacer"></div>
+  <button id="btnConnect" class="connect"><span class="led" id="led"></span><span id="connText">Connect Elxie</span></button>
+</header>
+
+<div class="main">
+  <div id="blocklyArea"><div id="blocklyDiv"></div></div>
+  <div class="runbar">
+    <button id="btnRun" class="flag" title="Run on Elxie"><svg viewBox="0 0 24 24"><path d="M5 3v18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M6 4h11l-2.5 4L17 12H6z" fill="currentColor"/></svg>Run</button>
+    <button id="btnStop" class="stop" title="Stop"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"/></svg></button>
+    <span id="runState" class="runstate">Ready</span>
+    <button id="btnPanel" class="panelToggle" aria-expanded="false" aria-controls="side"><span class="led" id="panelLed"></span>Elxie<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>
+  <aside class="side" id="side">
+    <button class="sheetHandle" id="sheetHandle" aria-label="Close panel"><span></span></button>
+
+    <section class="panel">
+      <h3>Elxie</h3>
+      <div id="robotInfo" class="muted">Not connected. Press <b>Connect Elxie</b>.</div>
+      <div class="tiles" id="tiles"></div>
+      <div class="linebox"><span class="tiny">Line sensors</span><div class="lineBars" id="lineBars"></div></div>
+      <div class="linebox"><span class="tiny">Table edge</span><div class="edgeDots" id="edgeDots"></div></div>
+    </section>
+
+    <section class="panel" id="varPanel" hidden>
+      <h3>Variables</h3>
+      <div id="vars" class="vars"></div>
+    </section>
+
+    <section class="panel">
+      <h3>Tricks saved on Elxie</h3>
+      <div id="slots" class="muted">Connect to see saved tricks.</div>
+      <button id="btnSaveRobot" class="wide" disabled>Save this program to Elxie…</button>
+    </section>
+
+    <section class="panel">
+      <details>
+        <summary>Calibrate &amp; messages</summary>
+        <div class="row">
+          <button data-cal="lineStart" disabled>Line: start</button><button data-cal="lineEnd" disabled>Line: done</button>
+          <button data-cal="gyro" disabled>Gyro</button><button data-cal="compass" disabled>Compass</button>
+        </div>
+        <div id="log" class="log"></div>
+      </details>
+    </section>
+  </aside>
+</div>
+
+<div id="toast" class="toast" role="status"></div>
+
+<dialog id="dlgConnect">
+  <h2>Connect Elxie</h2>
+  <p class="muted">Turn Elxie on, then choose how to connect.</p>
+  <div class="choices" id="choices">
+    <button id="cUsb" class="choice"><b>USB cable</b><small>Pick the "CP210x" port</small></button>
+    <button id="cBle" class="choice"><b>Bluetooth</b><small>Pick "ELXIE-…"</small></button>
+  </div>
+  <form method="dialog"><button class="ghost">Cancel</button></form>
+</dialog>
+
+<dialog id="dlgSave">
+  <h2>Save to Elxie</h2>
+  <p class="muted">Saved tricks run without the computer: choose them on Elxie's screen.</p>
+  <div id="saveSlots" class="saveSlots"></div>
+  <label class="check"><input type="checkbox" id="saveAutorun"> Start this trick when Elxie turns on</label>
+  <form method="dialog"><button class="ghost">Cancel</button></form>
+</dialog>
+
+<script src="vendor/blockly/blockly_compressed.js"></script>
+<script src="vendor/blockly/blocks_compressed.js"></script>
+<script src="vendor/blockly/en.js"></script>
+<script src="js/spec.gen.js?v=2"></script>
+<script src="js/assembler.js?v=2"></script>
+<script src="js/blocks.js?v=2"></script>
+<script src="js/compiler.js?v=2"></script>
+<script src="js/link.js?v=2"></script>
+<script src="js/app.js?v=2"></script>
+</body>
+</html>

@@ -61,12 +61,26 @@ import {
   BLE_RX_CHARACTERISTIC_UUID,
   BLE_SERVICE_UUID,
   BLE_TX_CHARACTERISTIC_UUID,
+  BLE_VM_CHUNK_SIZE,
+  BLE_VM_RX_CHARACTERISTIC_UUID,
+  BLE_VM_SERVICE_UUID,
+  BLE_VM_TX_CHARACTERISTIC_UUID,
 } from "./constants";
 
 export type MessageCallback = (message: string) => void;
 export type ConnectionCallback = (connected: boolean) => void;
+export type VmDataCallback = (data: Uint8Array) => void;
+
+/**
+ * Raw byte pipe to the Elxie Blocks VM service on the shared GATT connection.
+ */
+export type VmChannel = {
+  write: (data: Uint8Array) => Promise<void>;
+  subscribe: (callback: VmDataCallback) => () => void;
+};
 
 type QueuedWrite = {
+  channel: "app" | "vm";
   data: Uint8Array;
   resolve: () => void;
   reject: (error: Error) => void;
@@ -88,6 +102,8 @@ export class BleTransport {
   private device: BluetoothDevice | null = null;
   private rxCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
   private txCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  private vmRxCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  private vmTxCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
 
   private rxBuffer: string = "";
   private isWriting: boolean = false;
@@ -96,12 +112,36 @@ export class BleTransport {
 
   private messageSubscribers: Set<MessageCallback> = new Set();
   private connectionSubscribers: Set<ConnectionCallback> = new Set();
+  private vmSubscribers: Set<VmDataCallback> = new Set();
 
   /**
    * Returns true if connected to the BLE GATT server.
    */
   isConnected(): boolean {
     return Boolean(this.device?.gatt?.connected);
+  }
+
+  /**
+   * Returns true if the connected firmware exposes the Elxie Blocks VM service.
+   */
+  hasVmChannel(): boolean {
+    return this.isConnected() && this.vmRxCharacteristic !== null;
+  }
+
+  /**
+   * Byte pipe to the VM service, or null when the firmware has no VM service.
+   */
+  getVmChannel(): VmChannel | null {
+    if (!this.hasVmChannel()) return null;
+    return {
+      write: (data) => this.enqueueWrite("vm", data),
+      subscribe: (callback) => {
+        this.vmSubscribers.add(callback);
+        return () => {
+          this.vmSubscribers.delete(callback);
+        };
+      },
+    };
   }
 
   /**
@@ -128,7 +168,7 @@ export class BleTransport {
 
     this.device = await navigator.bluetooth.requestDevice({
       filters: [{ name: targetName }],
-      optionalServices: [BLE_SERVICE_UUID],
+      optionalServices: [BLE_SERVICE_UUID, BLE_VM_SERVICE_UUID],
     });
 
     console.info("[BLE Transport] Device selected", { name: this.device.name });
@@ -157,6 +197,8 @@ export class BleTransport {
       "characteristicvaluechanged",
       this.handleNotification,
     );
+
+    await this.attachVmService(server);
 
     this.device.addEventListener(
       "gattserverdisconnected",
@@ -201,20 +243,53 @@ export class BleTransport {
       bytes = data;
     }
 
+    return this.enqueueWrite("app", bytes);
+  }
+
+  /**
+   * Both services share one queue: Web Bluetooth rejects overlapping GATT
+   * operations on the same connection.
+   */
+  private enqueueWrite(channel: QueuedWrite["channel"], bytes: Uint8Array): Promise<void> {
+    if (channel === "vm" && !this.hasVmChannel()) {
+      return Promise.reject(new Error("BLE transport is not connected."));
+    }
+
     return new Promise((resolve, reject) => {
       console.debug("[BLE Transport] Write queued", {
+        channel,
         bytes: bytes.byteLength,
         queueLength: this.writeQueue.length + 1,
       });
-      this.writeQueue.push({ data: bytes, resolve, reject });
+      this.writeQueue.push({ channel, data: bytes, resolve, reject });
 
+      // Drop stale app writes (joystick spam) first; VM frames are part of an
+      // acknowledged upload and must not be dropped.
       while (this.writeQueue.length > MAX_QUEUE_SIZE) {
-        const dropped = this.writeQueue.shift();
-        dropped?.reject(new Error("BLE transport write queue overflow."));
+        const index = this.writeQueue.findIndex((item) => item.channel === "app");
+        if (index < 0) break;
+        const [dropped] = this.writeQueue.splice(index, 1);
+        dropped.reject(new Error("BLE transport write queue overflow."));
       }
 
       void this.flushWriteQueue();
     });
+  }
+
+  private async attachVmService(server: BluetoothRemoteGATTServer): Promise<void> {
+    try {
+      const vmService = await server.getPrimaryService(BLE_VM_SERVICE_UUID);
+      const vmRx = await vmService.getCharacteristic(BLE_VM_RX_CHARACTERISTIC_UUID);
+      const vmTx = await vmService.getCharacteristic(BLE_VM_TX_CHARACTERISTIC_UUID);
+      await vmTx.startNotifications();
+      vmTx.addEventListener("characteristicvaluechanged", this.handleVmNotification);
+      this.vmRxCharacteristic = vmRx;
+      this.vmTxCharacteristic = vmTx;
+      console.info("[BLE Transport] Elxie Blocks VM service attached");
+    } catch (error) {
+      // Game-only firmware: the app works as before, Blocks connects on its own.
+      console.info("[BLE Transport] Elxie Blocks VM service not available", error);
+    }
   }
 
   /**
@@ -264,9 +339,11 @@ export class BleTransport {
     try {
       while (this.writeQueue.length > 0) {
         const item = this.writeQueue.shift();
-        const characteristic = this.rxCharacteristic;
 
         if (!item) continue;
+
+        const characteristic =
+          item.channel === "vm" ? this.vmRxCharacteristic : this.rxCharacteristic;
 
         if (!characteristic || !this.isConnected()) {
           item.reject(new Error("BLE transport is not connected."));
@@ -279,8 +356,14 @@ export class BleTransport {
         }
 
         try {
-          console.debug("[BLE Transport] Writing characteristic", { bytes: item.data.byteLength });
-          await characteristic.writeValue(item.data.buffer as ArrayBuffer);
+          console.debug("[BLE Transport] Writing characteristic", { channel: item.channel, bytes: item.data.byteLength });
+          if (item.channel === "vm") {
+            for (let offset = 0; offset < item.data.length; offset += BLE_VM_CHUNK_SIZE) {
+              await characteristic.writeValue(item.data.slice(offset, offset + BLE_VM_CHUNK_SIZE));
+            }
+          } else {
+            await characteristic.writeValue(item.data.buffer as ArrayBuffer);
+          }
           this.lastWriteAt = performance.now();
           console.debug("[BLE Transport] Characteristic write completed", { bytes: item.data.byteLength });
           item.resolve();
@@ -329,6 +412,23 @@ export class BleTransport {
     }
   };
 
+  private handleVmNotification = (event: Event): void => {
+    const characteristic =
+      event.target as unknown as BluetoothRemoteGATTCharacteristic | null;
+
+    if (!characteristic?.value) return;
+
+    const { buffer, byteOffset, byteLength } = characteristic.value;
+    const data = new Uint8Array(buffer.slice(byteOffset, byteOffset + byteLength));
+    for (const subscriber of this.vmSubscribers) {
+      try {
+        subscriber(data);
+      } catch (err) {
+        console.error("[BLE Transport] Error in VM subscriber:", err);
+      }
+    }
+  };
+
   private handleDisconnect = (): void => {
     console.warn("[BLE Transport] GATT server disconnected", {
       deviceName: this.device?.name,
@@ -364,6 +464,13 @@ export class BleTransport {
       );
     }
 
+    if (this.vmTxCharacteristic) {
+      this.vmTxCharacteristic.removeEventListener(
+        "characteristicvaluechanged",
+        this.handleVmNotification,
+      );
+    }
+
     if (this.device) {
       this.device.removeEventListener(
         "gattserverdisconnected",
@@ -373,6 +480,8 @@ export class BleTransport {
 
     this.rxCharacteristic = null;
     this.txCharacteristic = null;
+    this.vmRxCharacteristic = null;
+    this.vmTxCharacteristic = null;
     this.device = null;
     this.rxBuffer = "";
 
