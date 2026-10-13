@@ -26,6 +26,7 @@ import {
 } from "@/lib/progressStore";
 import type {
   DirectionInvertGameState,
+  DirectionInvertLiveProgress,
   ObjectiveStatus,
 } from "@/types/directionInvert";
 import type { LevelProgress } from "@/types/colourQuest";
@@ -53,6 +54,9 @@ export default function DirectionInvertChallengePage() {
   // Live objective thresholds received directly from firmware game_started response
   const [liveThresholds, setLiveThresholds] = useState<LevelThresholds | null>(null);
 
+  // Live real-time objective progress telemetry from firmware (e.g. game_feedback / game_state)
+  const [liveProgress, setLiveProgress] = useState<DirectionInvertLiveProgress | null>(null);
+
   const [objectiveStatuses, setObjectiveStatuses] = useState<
     Record<1 | 2 | 3, ObjectiveStatus>
   >({
@@ -78,6 +82,38 @@ function isValidTargets(targets: unknown): targets is LevelThresholds {
     Number.isInteger(t.minRightTurns) &&
     t.minRightTurns >= 0
   );
+}
+
+function parseLiveProgress(data: unknown): DirectionInvertLiveProgress | null {
+  if (!data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+  const p = (obj.progress && typeof obj.progress === "object" ? obj.progress : obj) as Record<string, unknown>;
+
+  if (
+    typeof p.safeDriveElapsedSec === "number" &&
+    typeof p.totalTurns === "number" &&
+    typeof p.leftTurns === "number" &&
+    typeof p.rightTurns === "number"
+  ) {
+    const rawMode = p.controlMode ?? obj.controlMode;
+    const controlMode =
+      rawMode === "full_invert" || rawMode === "normal"
+        ? (rawMode as "full_invert" | "normal")
+        : undefined;
+
+    return {
+      safeDriveElapsedSec: p.safeDriveElapsedSec,
+      safeDriveTargetSec: typeof p.safeDriveTargetSec === "number" ? p.safeDriveTargetSec : undefined,
+      totalTurns: p.totalTurns,
+      minTotalTurns: typeof p.minTotalTurns === "number" ? p.minTotalTurns : undefined,
+      leftTurns: p.leftTurns,
+      minLeftTurns: typeof p.minLeftTurns === "number" ? p.minLeftTurns : undefined,
+      rightTurns: p.rightTurns,
+      minRightTurns: typeof p.minRightTurns === "number" ? p.minRightTurns : undefined,
+      controlMode,
+    };
+  }
+  return null;
 }
 
 function sanitizeProgress(
@@ -127,9 +163,10 @@ function sanitizeProgress(
   const isUnlocked = isLevelUnlocked(currentLevelId, levelProgressMap, 6);
   const resultHandledRef = useRef(false);
 
-  // Clear live targets when switching level
+  // Clear live targets and progress when switching level
   useEffect(() => {
     setLiveThresholds(null);
+    setLiveProgress(null);
   }, [currentLevelId]);
 
   // Sync progress with backend in background
@@ -247,6 +284,58 @@ function sanitizeProgress(
     }
   }, [lastMessage, currentLevelId]);
 
+  // Synchronize live objective counters from firmware telemetry, feedback, or game_state
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    // 1. game_feedback response carrying live progress payload
+    if (
+      lastMessage.type === "response" &&
+      lastMessage.response === "game_feedback"
+    ) {
+      const msg = lastMessage as Record<string, unknown>;
+      const gameId = msg.gameId ?? (msg.payload as Record<string, unknown> | undefined)?.gameId;
+      const lvl = msg.level ?? (msg.payload as Record<string, unknown> | undefined)?.level;
+      if (
+        gameId === "inverted_drive" &&
+        (lvl === undefined || lvl === currentLevelId)
+      ) {
+        const parsed = parseLiveProgress(msg.payload ?? msg);
+        if (parsed) {
+          setLiveProgress(parsed);
+          if (parsed.safeDriveTargetSec && parsed.minTotalTurns) {
+            setLiveThresholds((prev) => prev ?? {
+              safeDriveTargetSec: parsed.safeDriveTargetSec!,
+              minTotalTurns: parsed.minTotalTurns!,
+              minLeftTurns: parsed.minLeftTurns ?? 0,
+              minRightTurns: parsed.minRightTurns ?? 0,
+            });
+          }
+        }
+      }
+    }
+
+    // 2. game_state or telemetry messages with progress payload
+    if (
+      lastMessage.type === "game_state" ||
+      lastMessage.type === "telemetry"
+    ) {
+      const msg = lastMessage as Record<string, unknown>;
+      const payload = (msg.payload ?? msg) as Record<string, unknown>;
+      const game = payload.game ?? payload.gameId;
+      const lvl = payload.level;
+      if (
+        game === "inverted_drive" &&
+        (lvl === undefined || lvl === currentLevelId)
+      ) {
+        const parsed = parseLiveProgress(payload);
+        if (parsed) {
+          setLiveProgress(parsed);
+        }
+      }
+    }
+  }, [lastMessage, currentLevelId]);
+
   useEffect(() => {
     if (
       lastMessage &&
@@ -277,6 +366,7 @@ function sanitizeProgress(
     }
     resultHandledRef.current = false;
     setLiveThresholds(null);
+    setLiveProgress(null);
     setObjectiveStatuses({ 1: "pending", 2: "pending", 3: "pending" });
     setFinalResult(null);
     await gameSession.start();
@@ -285,6 +375,7 @@ function sanitizeProgress(
   const handleAbortMission = async () => {
     resultHandledRef.current = false;
     setLiveThresholds(null);
+    setLiveProgress(null);
     await stop();
     await gameSession.abort();
     setGameStateMode("INSTRUCTIONS");
@@ -293,6 +384,7 @@ function sanitizeProgress(
   const handleNextLevel = () => {
     resultHandledRef.current = false;
     setLiveThresholds(null);
+    setLiveProgress(null);
     if (currentLevelId < 6) {
       router.push(`/playground/inverted-drive/challenges/${currentLevelId + 1}`);
       setGameStateMode("INSTRUCTIONS");
@@ -306,6 +398,7 @@ function sanitizeProgress(
   const handleRetryLevel = async () => {
     resultHandledRef.current = false;
     setLiveThresholds(null);
+    setLiveProgress(null);
     setGameStateMode("INSTRUCTIONS");
     setObjectiveStatuses({ 1: "pending", 2: "pending", 3: "pending" });
     setFinalResult(null);
@@ -466,93 +559,168 @@ function sanitizeProgress(
                   </span>
                 </div>
               </div>
-              <button
-                onClick={handleAbortMission}
-                className="rounded-xl border border-red-500/30 bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-300"
-              >
-                Abort
-              </button>
+              <div className="flex items-center gap-2">
+                {currentLevelId === 6 && (
+                  <div
+                    className={`rounded-xl border px-2.5 py-1 text-xs font-black tracking-wide uppercase transition-colors ${
+                      liveProgress?.controlMode === "full_invert"
+                        ? "border-rose-500/40 bg-rose-500/20 text-rose-300 animate-pulse"
+                        : liveProgress?.controlMode === "normal"
+                        ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
+                        : "border-white/20 bg-white/10 text-white/60"
+                    }`}
+                  >
+                    {liveProgress?.controlMode === "full_invert"
+                      ? "Full Invert"
+                      : liveProgress?.controlMode === "normal"
+                      ? "Normal Control"
+                      : "Mode Syncing..."}
+                  </div>
+                )}
+                <button
+                  onClick={handleAbortMission}
+                  className="rounded-xl border border-red-500/30 bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-300"
+                >
+                  Abort
+                </button>
+              </div>
             </div>
 
             {/* Objectives Live Status */}
-            <div className="rounded-2xl border border-white/10 bg-surface p-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-white/50">
-                Live Objective Progress
-              </span>
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                {/* 1. Safe Drive (Task 1) */}
-                <div
-                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                    objectiveStatuses[1] === "passed"
-                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                      : objectiveStatuses[1] === "failed"
-                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                      : "border-white/10 bg-black/40 text-white/80"
-                  }`}
-                >
-                  <span className="text-sm font-bold tracking-tight">Safe Drive</span>
-                  <span className="mt-2 text-base font-bold">
-                    {liveThresholds
-                      ? `-- s / ${liveThresholds.safeDriveTargetSec} s`
-                      : "-- s / -- s"}
-                  </span>
-                </div>
+            {(() => {
+              const safeDriveTarget = liveProgress?.safeDriveTargetSec ?? liveThresholds?.safeDriveTargetSec;
+              const safeDrivePassed =
+                objectiveStatuses[1] === "passed" ||
+                (liveProgress !== null &&
+                  safeDriveTarget !== undefined &&
+                  safeDriveTarget > 0 &&
+                  liveProgress.safeDriveElapsedSec >= safeDriveTarget);
+              const safeDriveFailed = objectiveStatuses[1] === "failed";
 
-                {/* 2. Total Turns (Task 2) */}
-                <div
-                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                    objectiveStatuses[2] === "passed"
-                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                      : objectiveStatuses[2] === "failed"
-                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                      : "border-white/10 bg-black/40 text-white/80"
-                  }`}
-                >
-                  <span className="text-sm font-bold tracking-tight">Total Turns</span>
-                  <span className="mt-2 text-base font-bold">
-                    {liveThresholds
-                      ? `-- / ${liveThresholds.minTotalTurns}`
-                      : "-- / --"}
-                  </span>
-                </div>
+              const totalTurnsTarget = liveProgress?.minTotalTurns ?? liveThresholds?.minTotalTurns;
+              const totalTurnsPassed =
+                objectiveStatuses[2] === "passed" ||
+                (liveProgress !== null &&
+                  totalTurnsTarget !== undefined &&
+                  totalTurnsTarget > 0 &&
+                  liveProgress.totalTurns >= totalTurnsTarget);
+              const totalTurnsFailed = objectiveStatuses[2] === "failed";
 
-                {/* 3. Right Turns (Task 3 sub-target) */}
-                <div
-                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                    objectiveStatuses[3] === "passed"
-                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                      : objectiveStatuses[3] === "failed"
-                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                      : "border-white/10 bg-black/40 text-white/80"
-                  }`}
-                >
-                  <span className="text-sm font-bold tracking-tight">Right Turns</span>
-                  <span className="mt-2 text-base font-bold">
-                    {liveThresholds
-                      ? `-- / ${liveThresholds.minRightTurns}`
-                      : "-- / --"}
-                  </span>
-                </div>
+              const rightTurnsTarget = liveProgress?.minRightTurns ?? liveThresholds?.minRightTurns;
+              const rightTurnsPassed =
+                (objectiveStatuses[3] === "passed" && (!rightTurnsTarget || (liveProgress ? liveProgress.rightTurns >= rightTurnsTarget : true))) ||
+                (liveProgress !== null &&
+                  rightTurnsTarget !== undefined &&
+                  rightTurnsTarget > 0 &&
+                  liveProgress.rightTurns >= rightTurnsTarget);
+              const rightTurnsFailed = objectiveStatuses[3] === "failed";
 
-                {/* 4. Left Turns (Task 3 sub-target) */}
-                <div
-                  className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                    objectiveStatuses[3] === "passed"
-                      ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                      : objectiveStatuses[3] === "failed"
-                      ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                      : "border-white/10 bg-black/40 text-white/80"
-                  }`}
-                >
-                  <span className="text-sm font-bold tracking-tight">Left Turns</span>
-                  <span className="mt-2 text-base font-bold">
-                    {liveThresholds
-                      ? `-- / ${liveThresholds.minLeftTurns}`
-                      : "-- / --"}
+              const leftTurnsTarget = liveProgress?.minLeftTurns ?? liveThresholds?.minLeftTurns;
+              const leftTurnsPassed =
+                (objectiveStatuses[3] === "passed" && (!leftTurnsTarget || (liveProgress ? liveProgress.leftTurns >= leftTurnsTarget : true))) ||
+                (liveProgress !== null &&
+                  leftTurnsTarget !== undefined &&
+                  leftTurnsTarget > 0 &&
+                  liveProgress.leftTurns >= leftTurnsTarget);
+              const leftTurnsFailed = objectiveStatuses[3] === "failed";
+
+              return (
+                <div className="rounded-2xl border border-white/10 bg-surface p-4">
+                  <span className="text-xs font-bold uppercase tracking-wider text-white/50">
+                    Live Objective Progress
                   </span>
+                  <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                    {/* 1. Safe Drive (Task 1) */}
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                        safeDriveFailed
+                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                          : safeDrivePassed
+                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                          : "border-white/10 bg-black/40 text-white/80"
+                      }`}
+                    >
+                      <span className="text-sm font-bold tracking-tight">Safe Drive</span>
+                      <span className="mt-2 text-base font-bold">
+                        {liveProgress !== null
+                          ? `${liveProgress.safeDriveElapsedSec} s / ${
+                              safeDriveTarget ?? "--"
+                            } s`
+                          : liveThresholds
+                          ? `-- s / ${liveThresholds.safeDriveTargetSec} s`
+                          : "-- s / -- s"}
+                      </span>
+                    </div>
+
+                    {/* 2. Total Turns (Task 2) */}
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                        totalTurnsFailed
+                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                          : totalTurnsPassed
+                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                          : "border-white/10 bg-black/40 text-white/80"
+                      }`}
+                    >
+                      <span className="text-sm font-bold tracking-tight">Total Turns</span>
+                      <span className="mt-2 text-base font-bold">
+                        {liveProgress !== null
+                          ? `${liveProgress.totalTurns} / ${
+                              totalTurnsTarget ?? "--"
+                            }`
+                          : liveThresholds
+                          ? `-- / ${liveThresholds.minTotalTurns}`
+                          : "-- / --"}
+                      </span>
+                    </div>
+
+                    {/* 3. Right Turns (Task 3 sub-target) */}
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                        rightTurnsFailed
+                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                          : rightTurnsPassed
+                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                          : "border-white/10 bg-black/40 text-white/80"
+                      }`}
+                    >
+                      <span className="text-sm font-bold tracking-tight">Right Turns</span>
+                      <span className="mt-2 text-base font-bold">
+                        {liveProgress !== null
+                          ? `${liveProgress.rightTurns} / ${
+                              rightTurnsTarget ?? "--"
+                            }`
+                          : liveThresholds
+                          ? `-- / ${liveThresholds.minRightTurns}`
+                          : "-- / --"}
+                      </span>
+                    </div>
+
+                    {/* 4. Left Turns (Task 3 sub-target) */}
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
+                        leftTurnsFailed
+                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
+                          : leftTurnsPassed
+                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
+                          : "border-white/10 bg-black/40 text-white/80"
+                      }`}
+                    >
+                      <span className="text-sm font-bold tracking-tight">Left Turns</span>
+                      <span className="mt-2 text-base font-bold">
+                        {liveProgress !== null
+                          ? `${liveProgress.leftTurns} / ${
+                              leftTurnsTarget ?? "--"
+                            }`
+                          : liveThresholds
+                          ? `-- / ${liveThresholds.minLeftTurns}`
+                          : "-- / --"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Control Panel Integration for Driving Controls & Telemetry */}
             <ControlPanel />

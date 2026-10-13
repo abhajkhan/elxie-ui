@@ -40,3 +40,15 @@ export type LevelProgress = {
   unlocked?: boolean;
   timestamp?: number;
 };
+
+export type DirectionInvertLiveProgress = {
+  safeDriveElapsedSec: number;
+  safeDriveTargetSec?: number;
+  totalTurns: number;
+  minTotalTurns?: number;
+  leftTurns: number;
+  minLeftTurns?: number;
+  rightTurns: number;
+  minRightTurns?: number;
+  controlMode?: "normal" | "full_invert";
+};
