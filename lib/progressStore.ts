@@ -10,17 +10,39 @@ import {
 import type { LevelProgress, UserGameProgressResponse } from "@/types/colourQuest";
 
 const LOCAL_STORAGE_TRUST_KEY = "robotoy_trust_v1";
+const DEFAULT_TRUST_LEVEL = 50;
 
 export function getTrustLevel(): number {
-  if (typeof window === "undefined") return 50;
+  if (typeof window === "undefined") return DEFAULT_TRUST_LEVEL;
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_TRUST_KEY);
-    if (!raw) return 50;
+    if (!raw) return DEFAULT_TRUST_LEVEL;
     const val = parseInt(raw, 10);
-    return isNaN(val) ? 50 : Math.min(100, Math.max(0, val));
+    return isNaN(val) ? DEFAULT_TRUST_LEVEL : Math.min(100, Math.max(0, val));
   } catch {
-    return 50;
+    return DEFAULT_TRUST_LEVEL;
   }
+}
+
+/** Trust level used for server rendering and hydration (localStorage is client-only). */
+export function getServerTrustLevel(): number {
+  return DEFAULT_TRUST_LEVEL;
+}
+
+/**
+ * Subscribe to trust changes from this tab (trustLevelChanged) and other tabs
+ * (storage). For use with useSyncExternalStore.
+ */
+export function subscribeTrustLevel(onChange: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === LOCAL_STORAGE_TRUST_KEY) onChange();
+  };
+  window.addEventListener("trustLevelChanged", onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener("trustLevelChanged", onChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 export function incrementTrustLevel(amount: number): void {

@@ -7,7 +7,6 @@ import {
   Compass,
   Gauge,
   Palette,
-  Target,
   TriangleAlert,
   Volume2,
 } from "lucide-react";
@@ -47,31 +46,18 @@ import { JoyStickDir } from "@/types/protocol";
 
 type ControlPanelMode = "free-ride" | "training" | "challenge";
 
-type ActiveTaskInfo = {
-  index: number;
-  target?: string;
-  options?: string[];
-};
-
 type ControlPanelProps = {
   mode?: ControlPanelMode;
-  game?: string;
-  isGameActive?: boolean;
-  activeTask?: ActiveTaskInfo | null;
   onInputDirection?: (dir: "up" | "right" | "down" | "left") => void;
   customTelemetry?: React.ReactNode;
   customControls?: React.ReactNode;
+  showJoystick?: boolean;
+  /** LED / Honk / Performance buttons. Hide during timed tasks to keep focus on driving. */
+  showQuickActions?: boolean;
 };
-
-type ObstaclePosition =
-  | "front-left"
-  | "front-right"
-  | "rear-left"
-  | "rear-right";
 
 type ObstacleIndicatorProps = {
   label: string;
-  position: ObstaclePosition;
   detected: boolean | null;
 };
 
@@ -89,16 +75,8 @@ const modeLabel: Record<ControlPanelMode, string> = {
   challenge: "Challenge",
 };
 
-const obstaclePositionClass: Record<ObstaclePosition, string> = {
-  "front-left": "left-0 top-1 sm:top-3",
-  "front-right": "right-0 top-1 sm:top-3",
-  "rear-left": "bottom-1 sm:bottom-3 left-0",
-  "rear-right": "bottom-1 sm:bottom-3 right-0",
-};
-
 function ObstacleIndicator({
   label,
-  position,
   detected,
 }: ObstacleIndicatorProps) {
   const stateLabel =
@@ -119,25 +97,27 @@ function ObstacleIndicator({
 
   return (
     <div
-      className={`absolute flex items-center gap-1.5 rounded-full transition-all ${hasObstacle
-        ? "border border-danger bg-danger/20 px-2.5 py-2 text-danger shadow-[0_0_24px_rgba(255,76,100,0.75)]"
-        : "px-1 py-0.5"
-        } ${obstaclePositionClass[position]}`}
+      className={`flex items-center gap-1.5 rounded-full transition-all ${
+        hasObstacle
+          ? "border border-danger bg-danger/20 px-2 py-1 text-danger shadow-[0_0_16px_rgba(255,76,100,0.6)]"
+          : "border border-white/10 bg-white/5 px-2 py-1"
+      }`}
     >
       <span
         aria-hidden="true"
-        className={`h-3.5 w-3.5 rounded-full border shadow-[0_0_12px_currentColor] ${hasObstacle ? "animate-pulse" : ""
-          } ${stateClass}`}
+        className={`h-2.5 w-2.5 rounded-full border ${
+          hasObstacle ? "animate-pulse shadow-[0_0_8px_currentColor]" : ""
+        } ${stateClass}`}
       />
 
-      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">
         {label}
       </span>
 
       {hasObstacle && (
-        <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.1em] text-white">
-          <TriangleAlert size={13} aria-hidden="true" />
-          Obstacle
+        <span className="flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider text-danger">
+          <TriangleAlert size={11} aria-hidden="true" />
+          Alert
         </span>
       )}
 
@@ -148,12 +128,11 @@ function ObstacleIndicator({
 
 export default function ControlPanel({
   mode = "free-ride",
-  game,
-  isGameActive = false,
-  activeTask,
   onInputDirection,
   customTelemetry,
   customControls,
+  showJoystick = true,
+  showQuickActions = true,
 }: ControlPanelProps) {
   const { status, telemetry, robotState, sendJoystickInput, setLedColor: sendLedColor, honk } = useBleContext();
 
@@ -167,16 +146,10 @@ export default function ControlPanel({
     pit: false,
   });
 
-  const gameStartRef = useRef<number>(0);
-  useEffect(() => {
-    gameStartRef.current = Date.now();
-  }, [game]);
-
   const activeMovementDirection = useRef<JoyStickDir | null>(null);
 
   const isConnected = status === "connected";
   const isRobotInGame = robotState === "GAME" || telemetry?.state === "GAME";
-  const isColorQuestActive = game === "color-quest" && isGameActive;
 
   const heading = telemetry?.direction ?? null;
   const obstacle = telemetry?.obstacle;
@@ -186,14 +159,11 @@ export default function ControlPanel({
     const pit = telemetry?.pit.detected ?? false;
 
     if (sudden && !previousAlerts.current.sudden) {
-      const isGameJustStarted = Date.now() - gameStartRef.current < 2500;
-      if (!isGameJustStarted) {
-        setAlertToast({
-          id: Date.now(),
-          message: "Sudden motion detected",
-          tone: "warning",
-        });
-      }
+      setAlertToast({
+        id: Date.now(),
+        message: "Sudden motion detected",
+        tone: "warning",
+      });
     } else if (pit && !previousAlerts.current.pit) {
       setAlertToast({
         id: Date.now(),
@@ -303,9 +273,10 @@ export default function ControlPanel({
   return (
     <section
       aria-label={`${modeLabel[mode]} robot controls`}
-      className="flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-[0_24px_80px_rgba(0,0,0,0.22)] sm:p-5"
+      className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-[0_24px_80px_rgba(0,0,0,0.22)] sm:p-5"
     >
-      <div className="flex items-start justify-between gap-3">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
             Robo Control
@@ -326,14 +297,13 @@ export default function ControlPanel({
         </div>
       </div>
 
-      <div
-        className={`mt-3 flex min-h-0 flex-col gap-2 ${game === "reflex-dash" ? "flex-[3]" : "flex-1"
-          }`}
-      >
+      {/* Main Content Area */}
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
         {customTelemetry ? (
           <div className="flex-1 overflow-hidden">{customTelemetry}</div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 px-4 py-4">
+          <div className="flex min-h-0 flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 p-3.5 sm:p-4">
+            {/* Heading Display */}
             <div className="flex shrink-0 items-center justify-between text-xs text-white/45">
               <span className="flex items-center gap-1.5">
                 <Compass size={14} className="text-accent" />
@@ -345,65 +315,59 @@ export default function ControlPanel({
               </strong>
             </div>
 
-            <div className="relative mx-auto flex min-h-0 flex-1 w-full max-w-56 flex-col items-center justify-center">
-              <p className="absolute left-1/2 top-0 -translate-x-1/2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
-                Front
-              </p>
+            {/* Radar / Sensor Display Area with Spaced Non-Overlapping Obstacles */}
+            <div className="relative my-auto flex w-full flex-col items-center justify-between py-2 min-h-[150px]">
+              {/* Top Row: FL, FRONT Label, FR */}
+              <div className="flex w-full items-center justify-between px-1">
+                <ObstacleIndicator
+                  label="FL"
+                  detected={obstacle?.frontLeft ?? null}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+                  Front
+                </span>
+                <ObstacleIndicator
+                  label="FR"
+                  detected={obstacle?.frontRight ?? null}
+                />
+              </div>
 
-              <ObstacleIndicator
-                label="FL"
-                position="front-left"
-                detected={obstacle?.frontLeft ?? null}
-              />
-              <ObstacleIndicator
-                label="FR"
-                position="front-right"
-                detected={obstacle?.frontRight ?? null}
-              />
-              <ObstacleIndicator
-                label="RL"
-                position="rear-left"
-                detected={obstacle?.rearLeft ?? null}
-              />
-              <ObstacleIndicator
-                label="RR"
-                position="rear-right"
-                detected={obstacle?.rearRight ?? null}
-              />
-
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+              {/* Center Robot Diagram */}
+              <div className="my-2 flex items-center justify-center">
                 <div
                   aria-label={
                     heading === null
                       ? "Robot heading unavailable"
                       : `Robot heading ${Math.round(heading)} degrees`
                   }
-                  className={`flex items-center justify-center rounded-2xl border border-primary/50 bg-primary/10 shadow-[0_0_45px_rgba(124,92,255,0.32)] transition-transform duration-500 ${game === "reflex-dash" ? "h-10 w-10" : "h-14 w-14"
-                    }`}
+                  className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/50 bg-primary/10 shadow-[0_0_35px_rgba(124,92,255,0.25)] transition-transform duration-500"
                   style={{
                     transform: `rotate(${heading ?? 0}deg)`,
                   }}
                 >
-                  <div
-                    className={`absolute h-0 w-0 border-x-transparent border-b-accent ${game === "reflex-dash"
-                      ? "top-1 border-x-[4px] border-b-[6px]"
-                      : "top-1.5 border-x-[6px] border-b-[8px]"
-                      }`}
-                  />
-                  <Bot
-                    size={game === "reflex-dash" ? 20 : 28}
-                    strokeWidth={1.65}
-                    className="text-primary"
-                  />
+                  <div className="absolute top-1.5 h-0 w-0 border-x-[6px] border-x-transparent border-b-[8px] border-b-accent" />
+                  <Bot size={26} strokeWidth={1.65} className="text-primary" />
                 </div>
               </div>
 
-              <p className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
-                Rear
-              </p>
+              {/* Bottom Row: RL, REAR Label, RR */}
+              <div className="flex w-full items-center justify-between px-1">
+                <ObstacleIndicator
+                  label="RL"
+                  detected={obstacle?.rearLeft ?? null}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+                  Rear
+                </span>
+                <ObstacleIndicator
+                  label="RR"
+                  detected={obstacle?.rearRight ?? null}
+                />
+              </div>
             </div>
 
-            <div className="flex shrink-0 items-center justify-center gap-2 text-center">
+            {/* Distance Reading */}
+            <div className="flex shrink-0 items-center justify-center gap-2 text-center pt-1">
               <Gauge size={16} className="text-accent" />
               <span className="text-sm text-white/55">Front distance</span>
               <strong className="font-mono text-lg text-white">
@@ -416,22 +380,24 @@ export default function ControlPanel({
           </div>
         )}
 
+        {/* Quick Action Buttons */}
+        {showQuickActions && (
         <div className="flex w-full shrink-0 justify-between gap-2">
           <button
             type="button"
             onClick={() => setColorWheelOpen(true)}
             aria-label="Set LED Color"
-            className="flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-black/20 text-white/50 transition hover:bg-white/10 hover:text-white"
+            className="flex h-13 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-black/20 text-white/50 transition hover:bg-white/10 hover:text-white"
           >
             <div
-              className="flex h-5 w-5 items-center justify-center rounded-full border border-white/20 shadow-inner"
+              className="flex h-4.5 w-4.5 items-center justify-center rounded-full border border-white/20 shadow-inner"
               style={{
                 background: ledHex ?? "transparent",
                 boxShadow: ledHex ? `0 0 10px ${ledHex}88` : "none",
               }}
             >
               <Palette
-                size={12}
+                size={11}
                 className={ledHex ? "mix-blend-difference text-white/90" : ""}
               />
             </div>
@@ -444,7 +410,7 @@ export default function ControlPanel({
             type="button"
             onClick={sendHonk}
             aria-label="Honk"
-            className="flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-black/20 text-white/50 transition hover:bg-white/10 hover:text-white"
+            className="flex h-13 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-black/20 text-white/50 transition hover:bg-white/10 hover:text-white"
           >
             <Volume2 size={16} />
             <span className="text-[9px] font-bold uppercase tracking-wider">
@@ -457,23 +423,25 @@ export default function ControlPanel({
             onClick={togglePerfomanceMode}
             aria-label="Performance mode"
             aria-pressed={performanceMode}
-            className={`flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border transition ${performanceMode ? "border-primary bg-primary/15 text-primary" : "border-border bg-black/20 text-white/50 hover:bg-white/10 hover:text-white"}`}
+            className={`flex h-13 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border transition ${performanceMode ? "border-primary bg-primary/15 text-primary" : "border-border bg-black/20 text-white/50 hover:bg-white/10 hover:text-white"}`}
           >
             <PerformanceModeIcon size={18} />
             <span className="text-[9px] font-bold uppercase tracking-wider">
-              Performance {performanceMode ? "On" : "Off"}
+              Perf {performanceMode ? "On" : "Off"}
             </span>
           </button>
         </div>
+        )}
       </div>
 
+      {/* Alert Toasts: anchored to this panel, just below its header */}
       {alertToast && (
         <div
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
+          className="pointer-events-none absolute inset-x-4 top-14 z-20 flex justify-center"
           role="alert"
         >
           <p
-            className={`flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl backdrop-blur ${alertToast.tone === "warning"
+            className={`flex max-w-full items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl backdrop-blur ${alertToast.tone === "warning"
               ? "border-warning/35 bg-warning/90 text-black"
               : "border-danger/35 bg-danger/90 text-white"
               }`}
@@ -484,47 +452,26 @@ export default function ControlPanel({
         </div>
       )}
 
-      {isColorQuestActive && activeTask && (
-        <div className="mt-4 rounded-2xl border border-primary/30 bg-primary/10 p-3.5 text-center">
-          <div className="flex items-center justify-between text-xs font-bold text-primary">
-            <span className="flex items-center gap-1">
-              <Target size={14} /> Task {activeTask.index + 1} / 10
-            </span>
-            <span className="uppercase tracking-wider text-white/60">
-              Colour Quest
-            </span>
-          </div>
-          <div className="mt-1 text-sm font-bold text-white">
-            Use Joystick or Region Buttons to submit answer
-          </div>
-        </div>
-      )}
-
-      <div
-        className={`mt-3 flex min-h-0 flex-col ${game === "reflex-dash" ? "flex-[7]" : "flex-1"
-          }`}
-      >
+      {/* Joystick Area */}
+      {(customControls || showJoystick) && (
+      <div className="mt-3 flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center justify-end">
-            {isColorQuestActive && (
-              <span className="text-[10px] font-bold uppercase text-accent">
-                Sending task input
-              </span>
-            )}
-          </div>
           {customControls && (
             <div className="my-2 z-10 w-full shrink-0">{customControls}</div>
           )}
 
-          <div className="mx-auto mt-1 flex min-h-0 flex-1 w-full flex-col justify-center">
-            <JoystickController
-              disabled={!isConnected}
-              onDirectionChange={handleJoystickDirection}
-              onRelease={handleJoystickRelease}
-            />
-          </div>
+          {showJoystick && (
+            <div className="mx-auto mt-1 flex min-h-0 flex-1 w-full flex-col justify-center">
+              <JoystickController
+                disabled={!isConnected}
+                onDirectionChange={handleJoystickDirection}
+                onRelease={handleJoystickRelease}
+              />
+            </div>
+          )}
         </div>
       </div>
+      )}
 
       {colorWheelOpen && (
         <ColorWheelModal

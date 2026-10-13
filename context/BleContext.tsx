@@ -11,6 +11,7 @@ import {
 } from "react";
 import { incrementTrustLevel } from "@/lib/progressStore";
 import { ProtocolClient } from "@/lib/ble/protocolClient";
+import type { VmChannel } from "@/lib/ble/transport";
 import type {
   AnyProtocolMessage,
   CanonicalGameId,
@@ -46,6 +47,8 @@ export type BleContextValue = {
   lastMessage: AnyProtocolMessage | null;
   controlOwner: "mobile" | "remote" | "none";
   robotState: "IDLE" | "RC" | "GAME" | string;
+  /** Elxie Blocks VM service on the shared connection; null on game-only firmware. */
+  vmChannel: VmChannel | null;
   isModalOpen: boolean;
   openModal: () => void;
   closeModal: () => void;
@@ -105,6 +108,7 @@ export function BleProvider({ children }: { children: ReactNode }) {
   const [lastMessage, setLastMessage] = useState<AnyProtocolMessage | null>(null);
   const [controlOwner, setControlOwner] = useState<"mobile" | "remote" | "none">("none");
   const [robotState, setRobotState] = useState<string>("IDLE");
+  const [vmChannel, setVmChannel] = useState<VmChannel | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(true);
 
   // Initialize timers on mount
@@ -147,6 +151,23 @@ export function BleProvider({ children }: { children: ReactNode }) {
     }
   }, [telemetry]);
 
+  // Prevent accidental page reload/refresh when Bluetooth is connected
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      const warningMessage = "Bluetooth connection will be lost if you reload or leave this page. Are you sure you want to refresh?";
+      event.returnValue = warningMessage;
+      return warningMessage;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [status]);
+
   const openModal = useCallback(() => setIsModalOpen(true), []);
   const closeModal = useCallback(() => setIsModalOpen(false), []);
 
@@ -166,6 +187,7 @@ export function BleProvider({ children }: { children: ReactNode }) {
     setLastMessage(null);
     setControlOwner("none");
     setRobotState("IDLE");
+    setVmChannel(null);
   }, []);
 
   const connect = useCallback(async () => {
@@ -222,6 +244,7 @@ export function BleProvider({ children }: { children: ReactNode }) {
       setConnectionLost(false);
       setIsHandshakeComplete(true);
       setControlOwner("mobile"); // BLE connected -> Mobile App owns control
+      setVmChannel(client.getVmChannel());
       setIsModalOpen(false);
     } catch (error) {
       console.error("[BleContext] BLE connect/handshake flow failed", error);
@@ -370,6 +393,7 @@ export function BleProvider({ children }: { children: ReactNode }) {
         lastMessage,
         controlOwner,
         robotState,
+        vmChannel,
         isModalOpen,
         openModal,
         closeModal,

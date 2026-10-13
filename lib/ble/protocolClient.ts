@@ -1,6 +1,6 @@
 "use client";
 
-import { BleTransport } from "./transport";
+import { BleTransport, type VmChannel } from "./transport";
 import {
   PROTOCOL_VERSION,
   type AckPayload,
@@ -76,6 +76,13 @@ export class ProtocolClient {
    */
   isHandshakeComplete(): boolean {
     return this.isConnected() && this.isHandshakeDone;
+  }
+
+  /**
+   * Byte pipe to the Elxie Blocks VM service on the same connection, if the firmware has one.
+   */
+  getVmChannel(): VmChannel | null {
+    return this.transport.getVmChannel();
   }
 
   /**
