@@ -13,7 +13,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const isFirmwarePage = pathname.startsWith("/settings/firmware");
-  const showAppComponents = Boolean(isSignedIn && !isAuthPage && !isFirmwarePage);
+  // Blocks is a full-screen editor with its own back button and connect flow.
+  const isBlocksPage = pathname.startsWith("/playground/blocks");
+  const showAppComponents = Boolean(isSignedIn && !isAuthPage && !isFirmwarePage && !isBlocksPage);
 
   return (
     <>
