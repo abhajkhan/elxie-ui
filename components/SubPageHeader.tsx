@@ -19,7 +19,7 @@ export default function SubPageHeader({
   const isConnected = status === "connected";
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/90 pt-safe backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-md items-center gap-3 px-4">
         <Link
           href={backHref}

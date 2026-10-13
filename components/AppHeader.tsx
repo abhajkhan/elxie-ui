@@ -69,7 +69,7 @@ export default function AppHeader() {
   const remoteBattery = 0;
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/90 pt-safe backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-md items-center justify-between px-4">
         <Link href="/profile" className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">

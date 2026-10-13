@@ -14,7 +14,7 @@ export default function BluetoothNotificationBanner() {
   }
 
   return (
-    <div className="fixed inset-x-0 top-16 z-[40] px-4 pt-2">
+    <div className="fixed inset-x-0 top-[calc(4rem+env(safe-area-inset-top,0px))] z-[40] px-4 pt-2">
       <div className="mx-auto max-w-md">
         <button
           type="button"

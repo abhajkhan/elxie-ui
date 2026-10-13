@@ -27,7 +27,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      <div className={showAppComponents ? "pb-20" : ""}>{children}</div>
+      <div
+        className={
+          showAppComponents
+            ? "pt-[env(safe-area-inset-top,0px)] pb-[calc(5rem+env(safe-area-inset-bottom,0px))]"
+            : ""
+        }
+      >
+        {children}
+      </div>
 
       {showAppComponents && <BottomNav />}
     </>

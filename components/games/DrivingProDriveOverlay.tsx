@@ -85,7 +85,7 @@ export default function DrivingProDriveOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={`Task ${task.id} drive mode`}
-      className="fixed inset-0 z-[55] flex h-dvh flex-col bg-background pb-[env(safe-area-inset-bottom)] select-none"
+      className="fixed inset-0 z-[55] flex h-dvh flex-col bg-background pt-safe pb-safe select-none"
     >
       <div className="mx-auto flex h-full w-full max-w-md min-h-0 flex-col gap-3 px-4 pt-4 pb-4">
         {/* HUD: task + countdown ring */}

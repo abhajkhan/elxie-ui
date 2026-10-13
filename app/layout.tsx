@@ -23,6 +23,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // Draw edge to edge on notched iPhones so env(safe-area-inset-*) is non-zero
+  // and fixed bars can pad themselves clear of the home indicator / toolbar.
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
