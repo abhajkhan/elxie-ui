@@ -4,21 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Car,
+  Check,
   ShieldAlert,
   Clock,
-  ArrowLeft,
-  ArrowRight,
   Play,
   Sparkles,
   RotateCcw,
   Bluetooth,
   AlertCircle,
-  TriangleAlert,
-  ShieldCheck,
 } from "lucide-react";
 import SubPageHeader from "@/components/SubPageHeader";
 import ResultModal from "@/components/ResultModal";
 import ControlPanel from "@/components/ControlPanel";
+import DrivingProDriveOverlay from "@/components/games/DrivingProDriveOverlay";
 import { useBleContext } from "@/context/BleContext";
 import { getGameDefinition } from "@/data/gameCatalog";
 import {
@@ -78,6 +76,11 @@ export default function DrivingProChallengePage() {
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // GO pressed, waiting for the robot to confirm: drive mode opens immediately.
+  const [isLaunchingTask, setIsLaunchingTask] = useState(false);
+  // The card the player should act on next (starting / instructions / game over / error).
+  const focusCardRef = useRef<HTMLElement>(null);
 
   const clearTimers = useCallback(() => {
     if (countdownIntervalRef.current) {
@@ -288,6 +291,7 @@ export default function DrivingProChallengePage() {
 
     try {
       setErrorMessage(null);
+      setIsLaunchingTask(true);
       await startTask("driving_pro", levelId, taskId);
 
       // Local UI fallback if task_started response is instantaneous
@@ -314,11 +318,13 @@ export default function DrivingProChallengePage() {
     } catch (err) {
       console.warn("[DRIVING PRO] task_start error:", err);
       setErrorMessage("Failed to send task_start command to robot.");
+    } finally {
+      setIsLaunchingTask(false);
     }
   };
 
   // Handle Steering Inputs (Left / Right steering only, Up/Down ignored, None on release)
-  const handleSteer = async (dir: "left" | "right" | "none") => {
+  const handleSteer = useCallback(async (dir: "left" | "right" | "none") => {
     if (gameState !== "TASK_RUNNING") return;
 
     if (dir === "left") {
@@ -339,7 +345,11 @@ export default function DrivingProChallengePage() {
       lastTurnDirRef.current = "none";
       await sendJoystickInput("none", 0.0);
     }
-  };
+  }, [gameState, sendJoystickInput]);
+
+  const steer = useCallback((dir: "left" | "right" | "none") => {
+    void handleSteer(dir).catch((error: unknown) => console.error("[DRIVING PRO] Steer command failed", error));
+  }, [handleSteer]);
 
   const handleExit = () => {
     clearTimers();
@@ -365,6 +375,20 @@ export default function DrivingProChallengePage() {
   };
 
   const currentTaskMeta = getTaskMeta(currentTaskId);
+  const isDriveModeOpen =
+    Boolean(currentTaskMeta) && bleStatus === "connected" && (isLaunchingTask || gameState === "TASK_RUNNING");
+  const visibleError = session.error || errorMessage;
+
+  // Bring the card the player must act on next to the top of the screen, with
+  // the live sensor panel right below it. Drive mode replaces scrolling for GO.
+  useEffect(() => {
+    if (isDriveModeOpen) return;
+    const frame = requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      focusCardRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [gameState, currentTaskId, isDriveModeOpen, visibleError]);
   const isObstacleDetected = Boolean(
     telemetry?.obstacle?.frontLeft ||
     telemetry?.obstacle?.frontRight ||
@@ -418,12 +442,12 @@ export default function DrivingProChallengePage() {
         )}
 
         {/* Error notification */}
-        {(session.error || errorMessage) && (
-          <section className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 flex items-start gap-3">
+        {visibleError && (
+          <section ref={focusCardRef} className="scroll-mt-20 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 flex items-start gap-3">
             <AlertCircle size={20} className="shrink-0 mt-0.5" />
             <div className="text-xs leading-5 flex-1">
               <span className="font-bold block">Error</span>
-              {session.error || errorMessage}
+              {visibleError}
             </div>
           </section>
         )}
@@ -435,8 +459,8 @@ export default function DrivingProChallengePage() {
               <span className="text-lg font-bold text-white">Ready for Driver Training?</span>
               <p className="mt-1 text-xs leading-5 text-white/60">
                 1. Complete Task 1: Drive 7s without collision.<br />
-                2. Complete Task 2: Drive 7s & take $\ge 4$ turns.<br />
-                3. Complete Task 3: Drive 9s with $\ge 2$ left & $\ge 3$ right turns!
+                2. Complete Task 2: Drive 7s & take at least 4 turns.<br />
+                3. Complete Task 3: Drive 9s with at least 2 left & 3 right turns!
               </p>
             </div>
 
@@ -465,7 +489,7 @@ export default function DrivingProChallengePage() {
         )}
 
         {session.status === "starting" && gameState !== "TASK_INSTRUCTIONS" && (
-          <section className="rounded-3xl border border-primary/30 bg-primary/10 p-6 text-center shadow-xl animate-pulse">
+          <section ref={visibleError ? undefined : focusCardRef} className="scroll-mt-20 rounded-3xl border border-primary/30 bg-primary/10 p-6 text-center shadow-xl animate-pulse">
             <div className="flex items-center justify-center gap-3 text-primary font-bold text-sm">
               <RotateCcw size={18} className="animate-spin" />
               Initializing driving mode on robot...
@@ -475,13 +499,38 @@ export default function DrivingProChallengePage() {
 
         {/* TASK INSTRUCTIONS CARD */}
         {gameState === "TASK_INSTRUCTIONS" && currentTaskMeta && (
-          <section className="rounded-3xl border border-primary/40 bg-surface-light p-6 text-center shadow-2xl space-y-4">
+          <section ref={visibleError ? undefined : focusCardRef} className="scroll-mt-20 rounded-3xl border border-primary/40 bg-surface-light p-5 text-center shadow-2xl space-y-3">
+            {/* Task progress stepper */}
+            <ol className="flex items-center justify-center gap-2" aria-label="Task progress">
+              {[1, 2, 3].map((step) => {
+                const done = step < currentTaskMeta.id;
+                const current = step === currentTaskMeta.id;
+                return (
+                  <li key={step} className="flex items-center gap-2">
+                    <span
+                      aria-current={current ? "step" : undefined}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${
+                        done ? "bg-success text-black" : current ? "bg-primary text-white" : "bg-white/10 text-white/40"
+                      }`}
+                    >
+                      {done ? <Check size={14} strokeWidth={3} /> : step}
+                    </span>
+                    {step < 3 && <span className={`h-0.5 w-6 rounded ${done ? "bg-success" : "bg-white/10"}`} />}
+                  </li>
+                );
+              })}
+            </ol>
+
+            {currentTaskMeta.id > 1 && (
+              <p className="text-xs font-bold text-success">Task {currentTaskMeta.id - 1} cleared! Next up:</p>
+            )}
+
             <div className="flex items-center justify-center gap-2 text-xs font-bold text-primary uppercase tracking-widest">
               <Sparkles size={18} className="animate-pulse" />
               Task {currentTaskMeta.id} of 3 Instructions
             </div>
 
-            <div className="my-2 p-4 rounded-2xl border border-white/10 bg-black/30 text-left space-y-2">
+            <div className="p-4 rounded-2xl border border-white/10 bg-black/30 text-left space-y-2">
               <h3 className="text-base font-black text-white">{currentTaskMeta.title}</h3>
               <p className="text-xs text-white/70 leading-relaxed">{currentTaskMeta.description}</p>
 
@@ -494,12 +543,13 @@ export default function DrivingProChallengePage() {
             </div>
 
             <p className="text-[11px] text-white/50 max-w-xs mx-auto leading-relaxed">
-              Press <strong>GO</strong> to start driving! Robot moves forward continuously; steer Left/Right to avoid obstacles.
+              Press <strong>GO</strong> to start driving! Robot moves forward continuously; steer Left/Right to avoid obstacles. Check the sensors below first.
             </p>
 
             <button
               type="button"
               onClick={() => handleStartTask(currentTaskMeta.id)}
+              disabled={isLaunchingTask}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-4 text-base font-black text-black transition-all hover:bg-emerald-300 active:scale-[0.98] shadow-lg shadow-emerald-400/20"
             >
               <Play size={22} fill="currentColor" /> GO — Start Task {currentTaskMeta.id}
@@ -507,110 +557,27 @@ export default function DrivingProChallengePage() {
           </section>
         )}
 
-        {/* ACTIVE TASK RUNNING DASHBOARD */}
-        {gameState === "TASK_RUNNING" && currentTaskMeta && (
-          <section className="rounded-3xl border border-primary/40 bg-surface-light p-5 text-center shadow-2xl space-y-4">
-            {/* Task Header & Timer Banner */}
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-primary uppercase tracking-wider flex items-center gap-1.5">
-                <Car size={16} /> Task {currentTaskMeta.id} / 3 Active
-              </span>
-              <span className="font-extrabold text-amber-300 flex items-center gap-1">
-                <Clock size={14} className="animate-spin" /> {taskTimer}s Remaining
-              </span>
+        {/* Connection lost mid-task (drive mode closes when BLE drops) */}
+        {gameState === "TASK_RUNNING" && bleStatus !== "connected" && (
+          <section ref={focusCardRef} className="scroll-mt-20 rounded-3xl border border-warning/40 bg-surface-light p-6 text-center shadow-2xl space-y-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-warning/15 text-warning mx-auto">
+              <Bluetooth size={28} />
             </div>
-
-            {/* Task Requirements & Maneuver Tracker */}
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-3 text-left space-y-2">
-              <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest block">
-                Task Objective
-              </span>
-              <p className="text-xs font-bold text-white leading-snug">
-                {currentTaskMeta.requirementsText}
-              </p>
-
-              {/* Progress Counters per Task */}
-              <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2 text-xs">
-                {currentTaskId === 1 && (
-                  <div className="col-span-2 flex items-center justify-between rounded-xl bg-white/5 p-2">
-                    <span className="text-white/60">Collision Status:</span>
-                    <span className={`font-bold flex items-center gap-1 ${isObstacleDetected ? "text-rose-400 animate-pulse" : "text-emerald-400"}`}>
-                      {isObstacleDetected ? <TriangleAlert size={14} /> : <ShieldCheck size={14} />}
-                      {isObstacleDetected ? "DANGER / OBSTACLE" : "CLEAR"}
-                    </span>
-                  </div>
-                )}
-
-                {currentTaskId === 2 && (
-                  <div className="col-span-2 flex items-center justify-between rounded-xl bg-white/5 p-2">
-                    <span className="text-white/60">Turns Executed:</span>
-                    <span className="font-black text-emerald-400 text-sm">
-                      {totalTurnsCount} / {currentTaskMeta.minTurns ?? 4} Required
-                    </span>
-                  </div>
-                )}
-
-                {currentTaskId === 3 && (
-                  <>
-                    <div className="flex items-center justify-between rounded-xl bg-white/5 p-2">
-                      <span className="text-white/60">Left Turns:</span>
-                      <span className="font-bold text-emerald-400">
-                        {leftTurnsCount} / {currentTaskMeta.minLeftTurns ?? 2}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-xl bg-white/5 p-2">
-                      <span className="text-white/60">Right Turns:</span>
-                      <span className="font-bold text-emerald-400">
-                        {rightTurnsCount} / {currentTaskMeta.minRightTurns ?? 3}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Interactive Steering Controls */}
-            <div className="pt-2 space-y-3">
-              <span className="text-xs font-bold text-white/60 uppercase tracking-wider block">
-                Steering Controls (Auto-Forward Drive)
-              </span>
-
-              <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto">
-                <button
-                  type="button"
-                  onMouseDown={() => handleSteer("left")}
-                  onMouseUp={() => handleSteer("none")}
-                  onTouchStart={() => handleSteer("left")}
-                  onTouchEnd={() => handleSteer("none")}
-                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-primary/50 bg-primary/20 py-4 text-primary hover:bg-primary/30 active:scale-95 transition-all shadow-lg shadow-primary/10"
-                >
-                  <ArrowLeft size={32} />
-                  <span className="text-xs font-black">STEER LEFT</span>
-                </button>
-
-                <button
-                  type="button"
-                  onMouseDown={() => handleSteer("right")}
-                  onMouseUp={() => handleSteer("none")}
-                  onTouchStart={() => handleSteer("right")}
-                  onTouchEnd={() => handleSteer("none")}
-                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-primary/50 bg-primary/20 py-4 text-primary hover:bg-primary/30 active:scale-95 transition-all shadow-lg shadow-primary/10"
-                >
-                  <ArrowRight size={32} />
-                  <span className="text-xs font-black">STEER RIGHT</span>
-                </button>
-              </div>
-
-              <p className="text-[10px] text-white/40">
-                Hold button to turn left or right. Release button to return to forward drive. Up/Down controls are disabled.
-              </p>
-            </div>
+            <h2 className="text-lg font-black text-white">Robot disconnected</h2>
+            <p className="text-xs text-white/60 leading-relaxed">Reconnect Elxie, then restart the level.</p>
+            <button
+              type="button"
+              onClick={handleReplay}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3.5 text-sm font-extrabold text-black hover:bg-amber-400 active:scale-[0.98] transition-all"
+            >
+              <RotateCcw size={18} /> Restart Level {levelId}
+            </button>
           </section>
         )}
 
         {/* GAME OVER CARD */}
         {gameState === "GAME_OVER" && (
-          <section className="rounded-3xl border border-rose-500/50 bg-surface-light p-6 text-center shadow-2xl space-y-4">
+          <section ref={visibleError ? undefined : focusCardRef} className="scroll-mt-20 rounded-3xl border border-rose-500/50 bg-surface-light p-6 text-center shadow-2xl space-y-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-rose-500/20 text-rose-400 mx-auto shadow-inner shadow-rose-500/20">
               <ShieldAlert size={36} />
             </div>
@@ -636,11 +603,13 @@ export default function DrivingProChallengePage() {
           </section>
         )}
 
-        {/* ControlPanel Component for Real-Time Telemetry & Vehicle Indicators */}
-        <ControlPanel
-          mode="challenge"
-          showJoystick={false}
-        />
+        {/* ControlPanel Component for Real-Time Telemetry & Vehicle Indicators (moves into drive mode while a task runs) */}
+        {!isDriveModeOpen && (
+          <ControlPanel
+            mode="challenge"
+            showJoystick={false}
+          />
+        )}
 
         {/* Exit Button */}
         <button
@@ -651,6 +620,20 @@ export default function DrivingProChallengePage() {
           Exit Challenge
         </button>
       </div>
+
+      {isDriveModeOpen && currentTaskMeta && (
+        <DrivingProDriveOverlay
+          task={currentTaskMeta}
+          phase={gameState === "TASK_RUNNING" ? "running" : "launching"}
+          secondsLeft={taskTimer}
+          leftTurns={leftTurnsCount}
+          rightTurns={rightTurnsCount}
+          totalTurns={totalTurnsCount}
+          obstacleDetected={isObstacleDetected}
+          onSteer={steer}
+          onExit={handleExit}
+        />
+      )}
 
       {/* Result Modal */}
       {currentResult && (

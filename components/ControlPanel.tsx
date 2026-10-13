@@ -52,6 +52,8 @@ type ControlPanelProps = {
   customTelemetry?: React.ReactNode;
   customControls?: React.ReactNode;
   showJoystick?: boolean;
+  /** LED / Honk / Performance buttons. Hide during timed tasks to keep focus on driving. */
+  showQuickActions?: boolean;
 };
 
 type ObstacleIndicatorProps = {
@@ -130,6 +132,7 @@ export default function ControlPanel({
   customTelemetry,
   customControls,
   showJoystick = true,
+  showQuickActions = true,
 }: ControlPanelProps) {
   const { status, telemetry, robotState, sendJoystickInput, setLedColor: sendLedColor, honk } = useBleContext();
 
@@ -378,6 +381,7 @@ export default function ControlPanel({
         )}
 
         {/* Quick Action Buttons */}
+        {showQuickActions && (
         <div className="flex w-full shrink-0 justify-between gap-2">
           <button
             type="button"
@@ -427,6 +431,7 @@ export default function ControlPanel({
             </span>
           </button>
         </div>
+        )}
       </div>
 
       {/* Alert Toasts */}
@@ -448,6 +453,7 @@ export default function ControlPanel({
       )}
 
       {/* Joystick Area */}
+      {(customControls || showJoystick) && (
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
           {customControls && (
@@ -465,6 +471,7 @@ export default function ControlPanel({
           )}
         </div>
       </div>
+      )}
 
       {colorWheelOpen && (
         <ColorWheelModal
