@@ -5,7 +5,8 @@ import ControlPanel from "@/components/ControlPanel";
 
 export default function RcModePage() {
   return (
-    <main className="h-[calc(100dvh-5rem)] overflow-hidden bg-background">
+    // AppShell pads content by the bottom nav (5rem) plus the safe-area insets.
+    <main className="h-[calc(100dvh-5rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] overflow-hidden bg-background">
       <SubPageHeader
         title="RC Mode"
         subtitle="Free Ride"

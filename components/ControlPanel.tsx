@@ -305,16 +305,18 @@ export default function ControlPanel({
       </div>
       )}
 
-      {/* Main Content Area */}
-      <div className={compact ? "flex shrink-0 flex-col gap-2" : "mt-3 flex min-h-0 flex-1 flex-col gap-3"}>
+      {/* Main Content Area: takes the space the joystick leaves, but never
+          shrinks below its content (default min-height: auto), so sensors can't
+          overlap the quick-action buttons. */}
+      <div className={compact ? "flex flex-1 flex-col gap-2" : "mt-3 flex flex-1 flex-col gap-3"}>
         {customTelemetry ? (
           <div className="flex-1 overflow-hidden">{customTelemetry}</div>
         ) : (
           <div
             className={
               compact
-                ? "flex shrink-0 flex-col gap-1 rounded-2xl border border-border bg-black/20 p-2.5"
-                : "flex min-h-0 flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 p-3.5 sm:p-4"
+                ? "flex flex-1 flex-col justify-center gap-2 rounded-2xl border border-border bg-black/20 p-2.5"
+                : "flex flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 p-3.5 sm:p-4"
             }
           >
             {/* Heading Display (compact: shares the row with front distance) */}
@@ -489,7 +491,12 @@ export default function ControlPanel({
 
       {/* Joystick Area */}
       {(customControls || showJoystick) && (
-      <div className={`flex min-h-0 flex-1 flex-col ${compact ? "mt-2" : "mt-3"}`}>
+      <div
+        className={`flex flex-col ${compact ? "mt-2" : "mt-3"} ${
+          // Capped joystick: ~30% of the screen, shrinking to 8.5rem when space is tight.
+          showJoystick ? "h-[clamp(9.5rem,30dvh,15rem)] min-h-[8.5rem] shrink" : "shrink-0"
+        }`}
+      >
         <div className="flex min-h-0 flex-1 flex-col">
           {customControls && (
             <div className="my-2 z-10 w-full shrink-0">{customControls}</div>
