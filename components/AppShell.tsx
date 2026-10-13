@@ -12,7 +12,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
 
   const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
-  const showAppComponents = Boolean(isSignedIn && !isAuthPage);
+  const isFirmwarePage = pathname.startsWith("/settings/firmware");
+  const showAppComponents = Boolean(isSignedIn && !isAuthPage && !isFirmwarePage);
 
   return (
     <>
