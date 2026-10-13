@@ -113,6 +113,31 @@ export const gameCatalog: GameDefinition[] = [
       { id: 10, title: "Level 10", description: "Ultimate Boss Challenge! Extreme reaction speed & dynamic color recall.", difficulty: "Hard", timing: "300ms window", concept: "Dynamic 6-Color · 14 phases" },
     ],
   },
+  {
+    id: "inverted_drive",
+    slug: "inverted-drive",
+    aliases: ["direction-invert", "direction_invert"],
+    title: "Direction Invert",
+    description: "Drive with inverted controls — adapt to forward/backward, steering, full, and dynamic inversions.",
+    accent: "primary",
+    icon: "drive",
+    comingSoon: false,
+    progressSupported: true,
+    trainingSteps: [
+      { icon: "palette", title: "1. Control Mapping Inversion", description: "The robot's movement direction is intentionally inverted. Learn the active direction mapping for each level." },
+      { icon: "sparkles", title: "2. Objectives per Level", description: "Complete 3 objectives in each level: safe driving without collision, completing required total turns, and completing left/right turn counts." },
+      { icon: "help", title: "3. Adapt to Dynamic Changes", description: "Advanced levels feature dynamic control shifts mid-drive. Pay attention to warnings and adapt quickly!" },
+      { icon: "trophy", title: "4. Earn Stars & Unlock Levels", description: "Pass all 3 objectives in a level to earn 3 stars and unlock the next inversion challenge!" },
+    ],
+    levels: [
+      { id: 1, title: "Level 1", description: "Forward/Backward Invert: Forward ↔ Backward. Drive safely and complete turns.", concept: "Forward/Backward Invert", difficulty: "Easy" },
+      { id: 2, title: "Level 2", description: "Forward/Backward Challenge: Higher turn constraints with inverted movement.", concept: "Forward/Backward Invert", difficulty: "Easy" },
+      { id: 3, title: "Level 3", description: "Steering Invert: Left ↔ Right steering reversed. Forward/Backward remain normal.", concept: "Steering Invert", difficulty: "Medium" },
+      { id: 4, title: "Level 4", description: "Steering Challenge: Higher turn requirements with reversed steering.", concept: "Steering Invert", difficulty: "Medium" },
+      { id: 5, title: "Level 5", description: "Full Invert: Both Forward/Backward and Left/Right steering are inverted!", concept: "Full Invert", difficulty: "Hard" },
+      { id: 6, title: "Level 6", description: "Dynamic Invert: Control mapping shifts mid-drive (Normal ↔ Full Invert)!", concept: "Dynamic Invert", difficulty: "Hard", timing: "30 seconds" },
+    ],
+  },
 ];
 
 export function getGameDefinition(slug: string | undefined): GameDefinition | undefined {

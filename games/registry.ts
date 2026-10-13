@@ -20,6 +20,9 @@ const challengeStrategies: Partial<Record<CanonicalGameId, GameChallengeStrategy
   driving_pro: {
     Component: dynamic(() => import("@/components/games/DrivingProChallengePage")),
   },
+  inverted_drive: {
+    Component: dynamic(() => import("@/components/games/DirectionInvertChallengePage")),
+  },
 };
 
 export function getChallengeRuntime(slug: string | undefined): GameChallengeStrategy | undefined {
