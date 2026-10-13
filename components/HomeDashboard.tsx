@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   BrainCircuit,
@@ -22,7 +22,12 @@ import {
 
 import { useBleContext } from "@/context/BleContext";
 import ColorWheelModal from "@/components/ColorWheelModal";
-import { fetchAndSyncProgress, getTrustLevel } from "@/lib/progressStore";
+import {
+  fetchAndSyncProgress,
+  getServerTrustLevel,
+  getTrustLevel,
+  subscribeTrustLevel,
+} from "@/lib/progressStore";
 
 /* ─── Trust tips ──────────────────────────────────── */
 const TRUST_TIPS = [
@@ -476,17 +481,8 @@ export default function HomeDashboard() {
   const [colorWheelOpen, setColorWheelOpen] = useState(false);
   const [petFullscreen, setPetFullscreen] = useState(false);
   const [trustOpen, setTrustOpen] = useState(false);
-  const [trustLevel, setTrustLevel] = useState<number>(getTrustLevel);
-
-  // Listen for trust changes
-  useEffect(() => {
-    const onTrustChange = (e: Event) => {
-      const ce = e as CustomEvent<number>;
-      setTrustLevel(ce.detail);
-    };
-    window.addEventListener("trustLevelChanged", onTrustChange);
-    return () => window.removeEventListener("trustLevelChanged", onTrustChange);
-  }, []);
+  // Server snapshot during hydration, then the stored value: avoids a hydration mismatch.
+  const trustLevel = useSyncExternalStore(subscribeTrustLevel, getTrustLevel, getServerTrustLevel);
 
   /* Hide/show AppHeader + BottomNav during fullscreen */
   useEffect(() => {
