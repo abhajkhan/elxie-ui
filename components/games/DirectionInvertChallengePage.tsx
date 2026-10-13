@@ -3,14 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  AlertCircle,
   ShieldAlert,
   Play,
   Bluetooth,
+  LoaderCircle,
   Shuffle,
+  Star,
 } from "lucide-react";
 import SubPageHeader from "@/components/SubPageHeader";
 import ResultModal from "@/components/ResultModal";
-import ControlPanel from "@/components/ControlPanel";
+import DirectionInvertDriveMode, {
+  DirectionMapping,
+  type LiveObjective,
+} from "@/components/games/DirectionInvertDriveMode";
 import { useBleContext } from "@/context/BleContext";
 import {
   calculateStars,
@@ -27,11 +33,19 @@ import {
 import type {
   DirectionInvertGameState,
   DirectionInvertLiveProgress,
+  DirectionRule,
   ObjectiveStatus,
 } from "@/types/directionInvert";
 import type { LevelProgress } from "@/types/colourQuest";
 import type { GameResultPayload } from "@/types/protocol";
 import { useGameSession } from "@/games/useGameSession";
+
+const NORMAL_ACTIONS: Record<DirectionRule["playerInput"], DirectionRule["robotAction"]> = {
+  "Up (Forward)": "Forward",
+  "Down (Backward)": "Backward",
+  Left: "Left",
+  Right: "Right",
+};
 
 export default function DirectionInvertChallengePage() {
   const params = useParams<{ mode: string; level: string }>();
@@ -237,7 +251,12 @@ function sanitizeProgress(
   useEffect(() => {
     if (gameSession.status === "playing") {
       setGameStateMode("RUNNING");
-    } else if (gameSession.status === "idle" && gameStateMode === "RUNNING") {
+    } else if (
+      (gameSession.status === "idle" || gameSession.status === "error") &&
+      gameStateMode === "RUNNING"
+    ) {
+      // Session ended without a result (aborted, timed out, robot disconnected).
+      // Back to the briefing, where the session error is shown.
       setGameStateMode("INSTRUCTIONS");
     }
   }, [gameSession.status, gameStateMode]);
@@ -436,311 +455,197 @@ function sanitizeProgress(
     );
   }
 
+  // ── Live objective status (firmware game_state wins, live counters fill in) ──
+  const objectiveState = (passed: boolean, failed: boolean): ObjectiveStatus =>
+    failed ? "failed" : passed ? "passed" : "pending";
+  const reached = (value: number | undefined, target: number | undefined) =>
+    liveProgress !== null && value !== undefined && target !== undefined && target > 0 && value >= target;
+  const formatCount = (value: number | undefined, target: number | undefined, unit = "") =>
+    `${liveProgress !== null && value !== undefined ? value : "--"}/${target ?? "--"}${unit}`;
+
+  const safeDriveTarget = liveProgress?.safeDriveTargetSec ?? liveThresholds?.safeDriveTargetSec;
+  const totalTurnsTarget = liveProgress?.minTotalTurns ?? liveThresholds?.minTotalTurns;
+  const rightTurnsTarget = liveProgress?.minRightTurns ?? liveThresholds?.minRightTurns;
+  const leftTurnsTarget = liveProgress?.minLeftTurns ?? liveThresholds?.minLeftTurns;
+
+  const liveObjectives: LiveObjective[] = [
+    {
+      label: "Safe",
+      value: formatCount(liveProgress?.safeDriveElapsedSec, safeDriveTarget, "s"),
+      status: objectiveState(
+        objectiveStatuses[1] === "passed" || reached(liveProgress?.safeDriveElapsedSec, safeDriveTarget),
+        objectiveStatuses[1] === "failed",
+      ),
+    },
+    {
+      label: "Turns",
+      value: formatCount(liveProgress?.totalTurns, totalTurnsTarget),
+      status: objectiveState(
+        objectiveStatuses[2] === "passed" || reached(liveProgress?.totalTurns, totalTurnsTarget),
+        objectiveStatuses[2] === "failed",
+      ),
+    },
+    {
+      label: "Right",
+      value: formatCount(liveProgress?.rightTurns, rightTurnsTarget),
+      status: objectiveState(
+        (objectiveStatuses[3] === "passed" &&
+          (!rightTurnsTarget || (liveProgress ? liveProgress.rightTurns >= rightTurnsTarget : true))) ||
+          reached(liveProgress?.rightTurns, rightTurnsTarget),
+        objectiveStatuses[3] === "failed",
+      ),
+    },
+    {
+      label: "Left",
+      value: formatCount(liveProgress?.leftTurns, leftTurnsTarget),
+      status: objectiveState(
+        (objectiveStatuses[3] === "passed" &&
+          (!leftTurnsTarget || (liveProgress ? liveProgress.leftTurns >= leftTurnsTarget : true))) ||
+          reached(liveProgress?.leftTurns, leftTurnsTarget),
+        objectiveStatuses[3] === "failed",
+      ),
+    },
+  ];
+
+  // Level 6 switches between full invert and normal control during play.
+  const isDynamic = levelConfig.inversionType === "dynamic";
+  const dynamicMode = isDynamic ? liveProgress?.controlMode ?? "syncing" : undefined;
+  const activeRules: DirectionRule[] =
+    dynamicMode === "normal"
+      ? levelConfig.rules.map((rule) => ({
+          ...rule,
+          robotAction: NORMAL_ACTIONS[rule.playerInput],
+          isInverted: false,
+        }))
+      : levelConfig.rules;
+
+  const isConnected = bleStatus === "connected";
+  const isStarting = gameSession.status === "starting";
+  const bestStars = levelProgressMap[currentLevelId]?.stars ?? 0;
+
   return (
-    <main className="min-h-screen bg-background pb-12 pt-20">
+    <main className="min-h-screen bg-background pt-20">
       <SubPageHeader
         title={`Direction Invert · Level ${currentLevelId}`}
         subtitle={levelConfig.title}
         backHref="/playground/inverted-drive/challenges"
       />
 
-      <div className="mx-auto max-w-lg px-4 pt-4">
-        {/* BLE Banner standard check */}
-        {bleStatus !== "connected" && (
-          <div className="mb-4 flex items-center justify-between rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-300">
-            <div className="flex items-center gap-3">
-              <Bluetooth className="h-5 w-5 animate-pulse text-amber-400" />
-              <span className="text-xs font-semibold">
-                Robot Not Connected over BLE
+      {/* BRIEFING: everything needed to start, on one screen */}
+      {gameStateMode !== "RUNNING" && (
+        <div className="mx-auto flex max-w-md flex-col gap-3 px-4 pb-4 pt-2">
+          <section className="space-y-4 rounded-3xl border border-border bg-surface p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
+                {levelConfig.concept}
+              </span>
+              <span className="flex items-center gap-0.5" aria-label={`Best: ${bestStars} of 3 stars`}>
+                {[1, 2, 3].map((star) => (
+                  <Star
+                    key={star}
+                    size={14}
+                    className={star <= bestStars ? "fill-warning text-warning" : "text-white/20"}
+                  />
+                ))}
               </span>
             </div>
-            <button
-              onClick={openBleModal}
-              className="rounded-xl bg-amber-500 px-3 py-1.5 text-xs font-bold text-black"
-            >
-              Connect
-            </button>
-          </div>
-        )}
 
-        {/* INSTRUCTIONS SCREEN */}
-        {gameStateMode === "INSTRUCTIONS" && (
-          <div className="space-y-4">
-            {/* Level Card & Concept */}
-            <div className="rounded-3xl border border-border bg-surface p-6 shadow-xl">
-              <div className="flex items-center justify-between">
-                <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
-                  {levelConfig.concept}
-                </span>
-                <span className="text-xs font-semibold text-white/50">
-                  Level {currentLevelId} of 6
-                </span>
-              </div>
-              <h2 className="mt-3 text-2xl font-black text-white">
-                {levelConfig.title}
-              </h2>
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/60">
+                <Shuffle size={14} className="text-primary" /> Your joystick controls
+              </p>
+              <DirectionMapping rules={levelConfig.rules} />
+              {isDynamic && (
+                <p className="mt-2 text-[11px] text-warning/90">
+                  ⚡ Mapping flips between Normal and Inverted while you drive. Watch the badge!
+                </p>
+              )}
+            </div>
 
-              {/* Control Inversion Mapping Rules Card */}
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4">
-                <div className="flex items-center gap-2 font-bold text-white">
-                  <Shuffle className="h-4 w-4 text-primary" />
-                  <span className="text-sm">Active Inversion Mapping</span>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  {levelConfig.rules.map((rule, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex items-center justify-between rounded-xl p-2.5 border ${
-                        rule.isInverted
-                          ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                          : "border-white/10 bg-white/5 text-white/80"
-                      }`}
-                    >
-                      <span className="font-semibold">{rule.playerInput}</span>
-                      <span className="font-mono text-white">→ {rule.robotAction}</span>
-                    </div>
-                  ))}
-                </div>
-                {levelConfig.inversionType === "dynamic" && (
-                  <p className="mt-2 text-[11px] text-amber-300/80">
-                    ⚡ Control mapping shifts dynamically during play (Normal ↔ Full Invert)!
-                  </p>
-                )}
-              </div>
-
-              {/* Objectives List */}
-              <div className="mt-5 space-y-2.5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-white/60">
-                  Level Objectives (3 Stars Available)
-                </h3>
-                {levelConfig.objectives.map((obj) => (
-                  <div
-                    key={obj.id}
-                    className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/60">
+                Objectives · 1 star each
+              </p>
+              <ol className="grid grid-cols-3 gap-2">
+                {levelConfig.objectives.map((objective) => (
+                  <li
+                    key={objective.id}
+                    title={objective.description}
+                    className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-white/5 p-2.5 text-center"
                   >
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-xs font-black text-primary">
-                      {obj.id}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-white">{obj.title}</p>
-                      <p className="text-[11px] text-white/60">
-                        {obj.description}
-                      </p>
-                    </div>
-                  </div>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/20 text-[11px] font-black text-primary">
+                      {objective.id}
+                    </span>
+                    <span className="text-[11px] font-bold leading-tight text-white">{objective.title}</span>
+                  </li>
                 ))}
-              </div>
+              </ol>
+            </div>
+          </section>
 
-              {/* Start GO Button */}
+          {gameSession.error && (
+            <section role="alert" className="flex items-start gap-3 rounded-2xl border border-danger/30 bg-danger/10 p-3 text-danger">
+              <AlertCircle size={18} className="mt-0.5 shrink-0" />
+              <p className="text-xs leading-5">{gameSession.error}</p>
+            </section>
+          )}
+
+          {/* Start stays reachable above the bottom nav even on short screens */}
+          <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-10">
+            {isConnected ? (
               <button
+                type="button"
                 onClick={handleStartMission}
-                className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-2xl bg-primary py-4 text-base font-black text-black shadow-lg shadow-primary/25 transition active:scale-95"
+                disabled={isStarting}
+                className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-primary py-4 text-base font-black text-black shadow-lg shadow-primary/25 transition active:scale-[0.98] disabled:opacity-70"
               >
-                <Play className="h-5 w-5 fill-current" />
-                Start Level {currentLevelId}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* RUNNING SCREEN */}
-        {gameStateMode === "RUNNING" && (
-          <div className="space-y-4">
-            {/* Live Inversion Rule Header Banner */}
-            <div className="flex items-center justify-between rounded-2xl border border-primary/30 bg-primary/10 p-3.5 text-primary">
-              <div className="flex items-center gap-2">
-                <Shuffle className="h-5 w-5 animate-spin" />
-                <div>
-                  <span className="block text-xs font-extrabold uppercase tracking-wider text-white">
-                    {levelConfig.concept}
-                  </span>
-                  <span className="text-[11px] text-primary/80">
-                    Robot applies active directional mapping
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {currentLevelId === 6 && (
-                  <div
-                    className={`rounded-xl border px-2.5 py-1 text-xs font-black tracking-wide uppercase transition-colors ${
-                      liveProgress?.controlMode === "full_invert"
-                        ? "border-rose-500/40 bg-rose-500/20 text-rose-300 animate-pulse"
-                        : liveProgress?.controlMode === "normal"
-                        ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
-                        : "border-white/20 bg-white/10 text-white/60"
-                    }`}
-                  >
-                    {liveProgress?.controlMode === "full_invert"
-                      ? "Full Invert"
-                      : liveProgress?.controlMode === "normal"
-                      ? "Normal Control"
-                      : "Mode Syncing..."}
-                  </div>
+                {isStarting ? (
+                  <>
+                    <LoaderCircle className="h-5 w-5 animate-spin" /> Starting…
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-5 w-5 fill-current" /> Start Level {currentLevelId}
+                  </>
                 )}
-                <button
-                  onClick={handleAbortMission}
-                  className="rounded-xl border border-red-500/30 bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-300"
-                >
-                  Abort
-                </button>
-              </div>
-            </div>
-
-            {/* Objectives Live Status */}
-            {(() => {
-              const safeDriveTarget = liveProgress?.safeDriveTargetSec ?? liveThresholds?.safeDriveTargetSec;
-              const safeDrivePassed =
-                objectiveStatuses[1] === "passed" ||
-                (liveProgress !== null &&
-                  safeDriveTarget !== undefined &&
-                  safeDriveTarget > 0 &&
-                  liveProgress.safeDriveElapsedSec >= safeDriveTarget);
-              const safeDriveFailed = objectiveStatuses[1] === "failed";
-
-              const totalTurnsTarget = liveProgress?.minTotalTurns ?? liveThresholds?.minTotalTurns;
-              const totalTurnsPassed =
-                objectiveStatuses[2] === "passed" ||
-                (liveProgress !== null &&
-                  totalTurnsTarget !== undefined &&
-                  totalTurnsTarget > 0 &&
-                  liveProgress.totalTurns >= totalTurnsTarget);
-              const totalTurnsFailed = objectiveStatuses[2] === "failed";
-
-              const rightTurnsTarget = liveProgress?.minRightTurns ?? liveThresholds?.minRightTurns;
-              const rightTurnsPassed =
-                (objectiveStatuses[3] === "passed" && (!rightTurnsTarget || (liveProgress ? liveProgress.rightTurns >= rightTurnsTarget : true))) ||
-                (liveProgress !== null &&
-                  rightTurnsTarget !== undefined &&
-                  rightTurnsTarget > 0 &&
-                  liveProgress.rightTurns >= rightTurnsTarget);
-              const rightTurnsFailed = objectiveStatuses[3] === "failed";
-
-              const leftTurnsTarget = liveProgress?.minLeftTurns ?? liveThresholds?.minLeftTurns;
-              const leftTurnsPassed =
-                (objectiveStatuses[3] === "passed" && (!leftTurnsTarget || (liveProgress ? liveProgress.leftTurns >= leftTurnsTarget : true))) ||
-                (liveProgress !== null &&
-                  leftTurnsTarget !== undefined &&
-                  leftTurnsTarget > 0 &&
-                  liveProgress.leftTurns >= leftTurnsTarget);
-              const leftTurnsFailed = objectiveStatuses[3] === "failed";
-
-              return (
-                <div className="rounded-2xl border border-white/10 bg-surface p-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-white/50">
-                    Live Objective Progress
-                  </span>
-                  <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                    {/* 1. Safe Drive (Task 1) */}
-                    <div
-                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                        safeDriveFailed
-                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                          : safeDrivePassed
-                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                          : "border-white/10 bg-black/40 text-white/80"
-                      }`}
-                    >
-                      <span className="text-sm font-bold tracking-tight">Safe Drive</span>
-                      <span className="mt-2 text-base font-bold">
-                        {liveProgress !== null
-                          ? `${liveProgress.safeDriveElapsedSec} s / ${
-                              safeDriveTarget ?? "--"
-                            } s`
-                          : liveThresholds
-                          ? `-- s / ${liveThresholds.safeDriveTargetSec} s`
-                          : "-- s / -- s"}
-                      </span>
-                    </div>
-
-                    {/* 2. Total Turns (Task 2) */}
-                    <div
-                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                        totalTurnsFailed
-                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                          : totalTurnsPassed
-                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                          : "border-white/10 bg-black/40 text-white/80"
-                      }`}
-                    >
-                      <span className="text-sm font-bold tracking-tight">Total Turns</span>
-                      <span className="mt-2 text-base font-bold">
-                        {liveProgress !== null
-                          ? `${liveProgress.totalTurns} / ${
-                              totalTurnsTarget ?? "--"
-                            }`
-                          : liveThresholds
-                          ? `-- / ${liveThresholds.minTotalTurns}`
-                          : "-- / --"}
-                      </span>
-                    </div>
-
-                    {/* 3. Right Turns (Task 3 sub-target) */}
-                    <div
-                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                        rightTurnsFailed
-                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                          : rightTurnsPassed
-                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                          : "border-white/10 bg-black/40 text-white/80"
-                      }`}
-                    >
-                      <span className="text-sm font-bold tracking-tight">Right Turns</span>
-                      <span className="mt-2 text-base font-bold">
-                        {liveProgress !== null
-                          ? `${liveProgress.rightTurns} / ${
-                              rightTurnsTarget ?? "--"
-                            }`
-                          : liveThresholds
-                          ? `-- / ${liveThresholds.minRightTurns}`
-                          : "-- / --"}
-                      </span>
-                    </div>
-
-                    {/* 4. Left Turns (Task 3 sub-target) */}
-                    <div
-                      className={`flex flex-col items-center justify-center rounded-2xl border p-4 text-center transition-colors ${
-                        leftTurnsFailed
-                          ? "border-rose-500/50 bg-rose-950/40 text-rose-300"
-                          : leftTurnsPassed
-                          ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400"
-                          : "border-white/10 bg-black/40 text-white/80"
-                      }`}
-                    >
-                      <span className="text-sm font-bold tracking-tight">Left Turns</span>
-                      <span className="mt-2 text-base font-bold">
-                        {liveProgress !== null
-                          ? `${liveProgress.leftTurns} / ${
-                              leftTurnsTarget ?? "--"
-                            }`
-                          : liveThresholds
-                          ? `-- / ${liveThresholds.minLeftTurns}`
-                          : "-- / --"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Control Panel Integration for Driving Controls & Telemetry */}
-            <ControlPanel />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={openBleModal}
+                className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-amber-500 py-4 text-base font-black text-black shadow-lg shadow-amber-500/20 transition active:scale-[0.98]"
+              >
+                <Bluetooth className="h-5 w-5" /> Connect Robot to Start
+              </button>
+            )}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* RESULT MODAL */}
-        <ResultModal
-          isOpen={gameStateMode === "RESULT" && finalResult !== null}
-          level={currentLevelId}
-          score={finalResult?.score ?? 0}
-          stars={finalResult?.stars ?? 0}
-          bestScore={levelProgressMap[currentLevelId]?.bestScore ?? (finalResult?.score ?? 0)}
-          hasNextLevel={currentLevelId < 6}
-          isNextUnlocked={isLevelUnlocked(currentLevelId + 1, levelProgressMap, 6)}
-          onReplay={handleRetryLevel}
-          onNextLevel={handleNextLevel}
-          onBackToLevels={() => router.push("/playground/inverted-drive/challenges")}
+      {/* PLAY: full-screen drive mode with joystick */}
+      {gameStateMode === "RUNNING" && isConnected && (
+        <DirectionInvertDriveMode
+          levelId={currentLevelId}
+          concept={levelConfig.concept}
+          rules={activeRules}
+          dynamicMode={dynamicMode}
+          objectives={liveObjectives}
+          onAbort={handleAbortMission}
         />
-      </div>
+      )}
+
+      <ResultModal
+        isOpen={gameStateMode === "RESULT" && finalResult !== null}
+        level={currentLevelId}
+        score={finalResult?.score ?? 0}
+        stars={finalResult?.stars ?? 0}
+        bestScore={levelProgressMap[currentLevelId]?.bestScore ?? (finalResult?.score ?? 0)}
+        hasNextLevel={currentLevelId < 6}
+        isNextUnlocked={isLevelUnlocked(currentLevelId + 1, levelProgressMap, 6)}
+        onReplay={handleRetryLevel}
+        onNextLevel={handleNextLevel}
+        onBackToLevels={() => router.push("/playground/inverted-drive/challenges")}
+      />
     </main>
   );
 }

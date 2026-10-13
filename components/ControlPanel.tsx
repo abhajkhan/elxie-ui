@@ -54,6 +54,11 @@ type ControlPanelProps = {
   showJoystick?: boolean;
   /** LED / Honk / Performance buttons. Hide during timed tasks to keep focus on driving. */
   showQuickActions?: boolean;
+  /**
+   * Full-screen game layouts: no header, sensors sized to content in a tighter
+   * radar, and all remaining height goes to the joystick.
+   */
+  compact?: boolean;
 };
 
 type ObstacleIndicatorProps = {
@@ -133,6 +138,7 @@ export default function ControlPanel({
   customControls,
   showJoystick = true,
   showQuickActions = true,
+  compact = false,
 }: ControlPanelProps) {
   const { status, telemetry, robotState, sendJoystickInput, setLedColor: sendLedColor, honk } = useBleContext();
 
@@ -273,9 +279,10 @@ export default function ControlPanel({
   return (
     <section
       aria-label={`${modeLabel[mode]} robot controls`}
-      className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-[0_24px_80px_rgba(0,0,0,0.22)] sm:p-5"
+      className={`relative flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-[0_24px_80px_rgba(0,0,0,0.22)] ${compact ? "p-3" : "p-4 sm:p-5"}`}
     >
       {/* Header */}
+      {!compact && (
       <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
@@ -296,14 +303,21 @@ export default function ControlPanel({
               : "Offline"}
         </div>
       </div>
+      )}
 
       {/* Main Content Area */}
-      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
+      <div className={compact ? "flex shrink-0 flex-col gap-2" : "mt-3 flex min-h-0 flex-1 flex-col gap-3"}>
         {customTelemetry ? (
           <div className="flex-1 overflow-hidden">{customTelemetry}</div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 p-3.5 sm:p-4">
-            {/* Heading Display */}
+          <div
+            className={
+              compact
+                ? "flex shrink-0 flex-col gap-1 rounded-2xl border border-border bg-black/20 p-2.5"
+                : "flex min-h-0 flex-1 flex-col justify-between rounded-3xl border border-border bg-black/20 p-3.5 sm:p-4"
+            }
+          >
+            {/* Heading Display (compact: shares the row with front distance) */}
             <div className="flex shrink-0 items-center justify-between text-xs text-white/45">
               <span className="flex items-center gap-1.5">
                 <Compass size={14} className="text-accent" />
@@ -313,10 +327,29 @@ export default function ControlPanel({
               <strong className="font-mono text-sm text-white">
                 {heading === null ? "--°" : `${Math.round(heading)}°`}
               </strong>
+
+              {compact && (
+                <span className="ml-auto flex items-center gap-1.5 pl-3">
+                  <Gauge size={14} className="text-accent" />
+                  Front
+                  <strong className="font-mono text-sm text-white">
+                    {telemetry?.distance.front === undefined ||
+                  telemetry.distance.front === null
+                  ? "-- cm"
+                  : `${telemetry.distance.front} cm`}
+                  </strong>
+                </span>
+              )}
             </div>
 
             {/* Radar / Sensor Display Area with Spaced Non-Overlapping Obstacles */}
-            <div className="relative my-auto flex w-full flex-col items-center justify-between py-2 min-h-[150px]">
+            <div
+              className={
+                compact
+                  ? "relative flex w-full flex-col items-center gap-1"
+                  : "relative my-auto flex w-full flex-col items-center justify-between py-2 min-h-[150px]"
+              }
+            >
               {/* Top Row: FL, FRONT Label, FR */}
               <div className="flex w-full items-center justify-between px-1">
                 <ObstacleIndicator
@@ -333,20 +366,20 @@ export default function ControlPanel({
               </div>
 
               {/* Center Robot Diagram */}
-              <div className="my-2 flex items-center justify-center">
+              <div className={`flex items-center justify-center ${compact ? "" : "my-2"}`}>
                 <div
                   aria-label={
                     heading === null
                       ? "Robot heading unavailable"
                       : `Robot heading ${Math.round(heading)} degrees`
                   }
-                  className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/50 bg-primary/10 shadow-[0_0_35px_rgba(124,92,255,0.25)] transition-transform duration-500"
+                  className={`relative flex items-center justify-center rounded-2xl border ${compact ? "h-11 w-11" : "h-14 w-14"} border-primary/50 bg-primary/10 shadow-[0_0_35px_rgba(124,92,255,0.25)] transition-transform duration-500`}
                   style={{
                     transform: `rotate(${heading ?? 0}deg)`,
                   }}
                 >
                   <div className="absolute top-1.5 h-0 w-0 border-x-[6px] border-x-transparent border-b-[8px] border-b-accent" />
-                  <Bot size={26} strokeWidth={1.65} className="text-primary" />
+                  <Bot size={compact ? 22 : 26} strokeWidth={1.65} className="text-primary" />
                 </div>
               </div>
 
@@ -367,6 +400,7 @@ export default function ControlPanel({
             </div>
 
             {/* Distance Reading */}
+            {!compact && (
             <div className="flex shrink-0 items-center justify-center gap-2 text-center pt-1">
               <Gauge size={16} className="text-accent" />
               <span className="text-sm text-white/55">Front distance</span>
@@ -377,6 +411,7 @@ export default function ControlPanel({
                   : `${telemetry.distance.front} cm`}
               </strong>
             </div>
+            )}
           </div>
         )}
 
@@ -437,7 +472,7 @@ export default function ControlPanel({
       {/* Alert Toasts: anchored to this panel, just below its header */}
       {alertToast && (
         <div
-          className="pointer-events-none absolute inset-x-4 top-14 z-20 flex justify-center"
+          className={`pointer-events-none absolute inset-x-4 z-20 flex justify-center ${compact ? "top-3" : "top-14"}`}
           role="alert"
         >
           <p
@@ -454,7 +489,7 @@ export default function ControlPanel({
 
       {/* Joystick Area */}
       {(customControls || showJoystick) && (
-      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+      <div className={`flex min-h-0 flex-1 flex-col ${compact ? "mt-2" : "mt-3"}`}>
         <div className="flex min-h-0 flex-1 flex-col">
           {customControls && (
             <div className="my-2 z-10 w-full shrink-0">{customControls}</div>
