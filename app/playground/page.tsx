@@ -56,7 +56,7 @@ export default function Playground() {
             icon="blocks"
             accent="accent"
             href="/playground/blocks"
-            locked={!blocks.unlocked}
+            //locked={!blocks.unlocked}
             lockedHint={`Finish ${blocks.remaining.map((game) => game.title).join(", ")} to unlock`}
           />
         </div>
