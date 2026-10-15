@@ -9,7 +9,8 @@ import { useProgressSummaries } from "@/lib/useProgressSummaries";
 
 export default function ElxieBlocksPage() {
   const { progress, synced } = useProgressSummaries();
-  const { unlocked } = getBlocksUnlockStatus(progress);
+  //const { unlocked } = getBlocksUnlockStatus(progress);
+  const unlocked = true;
 
   if (unlocked) return <ElxieBlocksFrame />;
 
