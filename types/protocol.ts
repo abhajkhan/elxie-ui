@@ -342,6 +342,10 @@ export type TelemetryPayload = {
   };
   battery: {
     robot: number;
+    robotV?: number;
+    /** Missing = remote not reporting (off, out of range or not paired). */
+    remote?: number;
+    remoteV?: number;
   };
   touch?: {
     event: "none" | "touched";

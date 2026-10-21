@@ -14,15 +14,21 @@ function BatteryBar({
   accent,
 }: {
   label: string;
-  pct: number;
+  pct?: number;
   accent: "cyan" | "green";
 }) {
+  const unknown = pct === undefined;
   const color = accent === "cyan" ? "#00e5ff" : "#35e59a";
-  const low = pct < 20;
-  const displayColor = low ? "#ff4d67" : color;
+  const low = !unknown && pct < 20;
+  const displayColor = unknown ? "#ffffff55" : low ? "#ff4d67" : color;
+  const hint = low
+    ? `Charge the ${label === "RC" ? "remote" : "robot"}`
+    : unknown
+      ? "Not reporting"
+      : undefined;
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" title={hint}>
       <span className="w-5 text-right text-[8px] font-bold uppercase tracking-[0.05em] text-white/40">
         {label}
       </span>
@@ -33,7 +39,7 @@ function BatteryBar({
       >
         <div
           className="h-full rounded-[1px] transition-all duration-500"
-          style={{ width: `${pct}%`, background: displayColor, boxShadow: `0 0 6px ${displayColor}b3` }}
+          style={{ width: `${pct ?? 0}%`, background: displayColor, boxShadow: `0 0 6px ${displayColor}b3` }}
         />
       </div>
       {/* Battery Terminal */}
@@ -43,7 +49,7 @@ function BatteryBar({
         className="w-5 text-[8px] font-bold"
         style={{ color: displayColor, textShadow: `0 0 4px ${displayColor}88` }}
       >
-        {pct}%
+        {unknown ? "–" : `${pct}%`}
       </span>
     </div>
   );
@@ -66,7 +72,7 @@ export default function AppHeader() {
   const isConnected = robot.connectionStatus === "connected";
 
   const robotBattery = telemetry?.battery?.robot ?? 0;
-  const remoteBattery = 0;
+  const remoteBattery = telemetry?.battery?.remote;
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/90 pt-safe backdrop-blur-md">
@@ -90,7 +96,7 @@ export default function AppHeader() {
           {/* Dual battery indicators */}
           <div className="flex flex-col gap-1">
             <BatteryBar label="RC" pct={remoteBattery} accent="cyan" />
-            {/* <BatteryBar label="Bot" pct={robotBattery}  accent="green" /> */}
+            <BatteryBar label="Bot" pct={robotBattery} accent="green" />
           </div>
 
           {/* BLE connect button */}
