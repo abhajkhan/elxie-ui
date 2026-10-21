@@ -5,16 +5,16 @@ export default function SignInPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-12">
       <div className="w-full max-w-md flex flex-col items-center">
-        {/* RoboToy Controller Header */}
+        {/* ELXIE Header */}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/20 border border-primary/40 shadow-[0_0_24px_rgba(124,92,255,0.35)] mb-3">
             <Bot size={30} className="text-accent" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-foreground">
-            RoboToy Controller
+            ELXIE
           </h1>
           <p className="mt-1 text-xs text-white/60 max-w-xs leading-relaxed">
-            Sign in to connect your ESP32 robot, access live telemetry, and explore the playground.
+            Sign in to connect your ELXIE, access live telemetry, and explore the playground.
           </p>
         </div>
 

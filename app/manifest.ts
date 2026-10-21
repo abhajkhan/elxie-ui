@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Robo Controller",
-    short_name: "Robo Controller",
-    description: "ESP32-S3 BLE Robot Controller",
+    name: "ELXIE",
+    short_name: "ELXIE",
+    description: "ELXIE Robot Controller",
     start_url: "/",
     display: "standalone",
     background_color: "#080b14",

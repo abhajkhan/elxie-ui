@@ -51,7 +51,7 @@ export const gameCatalog: GameDefinition[] = [
     comingSoon: false, 
     progressSupported: true,
     trainingSteps: [
-      { icon: "eye", title: "Watch & Memorize", description: "Watch the Robo flash the directional LED sequence." },
+      { icon: "eye", title: "Watch & Memorize", description: "Watch ELXIE flash the directional LED sequence." },
       { icon: "sparkles", title: "Wait", description: "After the sequence, all LEDs turn off for 3 seconds. Remember the pattern." },
       { icon: "help", title: "Echo the Sequence", description: "Use the controller D-pad to reproduce the directions in the same order. Fixed mapping: Up = Red, Right = Yellow, Down = Green, Left = Blue." },
       { icon: "trophy", title: "Score & Stars", description: "Each mistake reduces your score percentage. Earn stars based on your final accuracy score (90%+ for 3 stars)." },

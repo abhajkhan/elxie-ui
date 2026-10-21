@@ -286,7 +286,7 @@ export default function ControlPanel({
       <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-            Robo Control
+            ELXIE Control
           </p>
         </div>
 

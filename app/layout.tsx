@@ -29,12 +29,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Robo Controller",
-  description: "ESP32-S3 BLE Robot Controller",
+  title: "ELXIE",
+  description: "ELXIE Robot Controller",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Robo Controller",
+    title: "ELXIE",
   },
   icons: {
     icon: "/icon-192.png",

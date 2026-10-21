@@ -50,8 +50,8 @@ export default function BluetoothConnectionGate() {
           role={connectionLost ? "alert" : undefined}
         >
           {connectionLost
-            ? "Bluetooth connection lost. Reconnect to your ESP32 robot to continue sending commands and receiving telemetry."
-            : "Connect to your ESP32 robot to send commands and receive telemetry, or explore the portal offline."}
+            ? "Bluetooth connection lost. Reconnect to your ELXIE to continue sending commands and receiving telemetry."
+            : "Connect to your ELXIE to send commands and receive telemetry, or explore the portal offline."}
         </p>
 
         <button
